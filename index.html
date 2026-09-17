@@ -1,0 +1,2741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Groove Mixer</title>
+<script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.4/build/opensheetmusicdisplay.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
+<style>
+/* ── Design tokens (matches Melody Mixer) ────────────────────────────────
+   Primary:   #FFFFFF (white)
+   Secondary: #1A1A1A (near-black)
+   Tertiary:  #6B6B6B (mid-gray)
+   Border:    #E0E0E0
+   Hover:     #F4F4F4
+   Accent:    #1A1A1A (black used as accent)
+───────────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 14px; color: #1A1A1A; background: #F4F4F4;
+  height: 100vh; overflow: hidden;
+}
+.app { display: flex; height: 100vh; overflow: hidden; }
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 260px; min-width: 260px;
+  background: #FFFFFF;
+  border-right: 1px solid #E0E0E0;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  transition: transform 0.25s ease;
+  height: 100vh; flex-shrink: 0;
+}
+.sidebar.collapsed { transform: translateX(-260px); margin-right: -260px; }
+
+.sidebar-header {
+  padding: 16px 16px 14px;
+  font-weight: 700; font-size: 11px; color: #1A1A1A;
+  border-bottom: 2px solid #1A1A1A;
+  text-transform: uppercase; letter-spacing: .12em;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.btn-close-sidebar {
+  background: none; border: none; cursor: pointer; color: #1A1A1A;
+  padding: 2px; display: flex; align-items: center; justify-content: center;
+  border-radius: 3px; transition: background .1s;
+}
+.btn-close-sidebar:hover { background: #F0F0F0; }
+
+/* ── Accordion ── */
+.acc-section { border-bottom: 1px solid #E8E8E8; }
+.acc-trigger {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: none; border: none; cursor: pointer;
+  font-size: 10px; font-weight: 700; color: #6B6B6B;
+  text-transform: uppercase; letter-spacing: .1em; text-align: left;
+  transition: background .1s, color .1s;
+}
+.acc-trigger:hover { background: #F4F4F4; color: #1A1A1A; }
+.acc-trigger.open { color: #1A1A1A; background: #F8F8F8; }
+.acc-chevron {
+  width: 13px; height: 13px; flex-shrink: 0; fill: none;
+  stroke: currentColor; stroke-width: 2.5;
+  stroke-linecap: round; stroke-linejoin: round;
+  transition: transform 0.2s ease;
+}
+.acc-trigger.open .acc-chevron { transform: rotate(180deg); }
+.acc-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.25s ease;
+  padding: 0 16px;
+}
+.acc-body.open { max-height: 600px; padding: 4px 16px 16px; }
+
+/* ── Form controls inside sidebar ── */
+.field-label {
+  font-size: 10px; font-weight: 700; color: #6B6B6B;
+  text-transform: uppercase; letter-spacing: .08em;
+  margin-bottom: 6px; margin-top: 12px;
+}
+.field-label:first-child { margin-top: 0; }
+select, input[type="number"] {
+  width: 100%; font-size: 13px; padding: 6px 8px;
+  border: 1px solid #D0D0D0; border-radius: 3px;
+  background: #fff; color: #1A1A1A;
+}
+.radio-group, .tog-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.tog {
+  font-size: 12px; padding: 5px 11px; border-radius: 4px;
+  border: 1px solid #D0D0D0; background: #fff; color: #555;
+  cursor: pointer; user-select: none; transition: all .12s;
+}
+.tog:hover { border-color: #999; color: #1A1A1A; }
+.tog.on { background: #1A1A1A; color: #fff; border-color: #1A1A1A; }
+.controls-disabled { opacity: 0.35; pointer-events: none; }
+.style-swing-only { display: none; }
+
+.voice-toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 0;
+}
+.voice-toggle-row .v-label { font-size: 13px; color: #1A1A1A; }
+.switch {
+  position: relative; width: 34px; height: 18px; flex-shrink: 0;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch-track {
+  position: absolute; inset: 0; background: #D0D0D0; border-radius: 999px;
+  cursor: pointer; transition: background .15s;
+}
+.switch-track::before {
+  content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px;
+  background: #fff; border-radius: 50%; transition: transform .15s;
+}
+.switch input:checked + .switch-track { background: #1A1A1A; }
+.switch input:checked + .switch-track::before { transform: translateX(16px); }
+
+/* ── Main area ── */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+.top-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px; background: #FFFFFF; border-bottom: 1px solid #E0E0E0;
+  flex-wrap: wrap;
+}
+.btn-settings, .btn-gen, .btn-play, .btn-stop, .btn-zoom {
+  font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 4px;
+  border: 1px solid #D0D0D0; background: #fff; color: #1A1A1A;
+  cursor: pointer; display: flex; align-items: center; gap: 6px;
+  text-transform: uppercase; letter-spacing: .04em;
+  transition: all .1s;
+}
+.btn-settings:hover, .btn-play:hover, .btn-stop:hover, .btn-zoom:hover { border-color: #1A1A1A; }
+.btn-gen { background: #1A1A1A; color: #fff; border-color: #1A1A1A; }
+.btn-gen:hover { background: #333; }
+.btn-zoom { padding: 8px 11px; }
+.settings-icon { width: 14px; height: 14px; fill: currentColor; }
+
+.style-select-wrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.style-select-wrap label { font-size: 11px; color: #6B6B6B; text-transform: uppercase; letter-spacing: .06em; }
+
+/* ── Mixer (vertical channel strips, mixing-console style) ── */
+.mixer {
+  display: flex; align-items: flex-end; gap: 24px;
+  padding: 14px 24px 12px; background: #FFFFFF; border-bottom: 1px solid #E0E0E0;
+}
+.fader-channel { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.fader-channel-master { padding-left: 20px; border-left: 1px solid #E0E0E0; }
+.fader-label {
+  font-size: 10px; font-weight: 700; color: #6B6B6B;
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.fader-track { height: 120px; display: flex; align-items: center; justify-content: center; }
+input[type="range"].fader {
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 24px; height: 120px;
+  accent-color: #1A1A1A;
+}
+.fader-val { font-size: 11px; color: #6B6B6B; min-width: 22px; text-align: center; }
+.play-status { font-size: 12px; color: #6B6B6B; margin-left: auto; align-self: center; }
+
+/* ── Staff area ── */
+.content-scroll { flex: 1; overflow-y: auto; overflow-x: auto; padding: 20px; }
+.staff-card {
+  background: #fff; border: 1px solid #E0E0E0; border-radius: 6px;
+  padding: 20px; width: 100%; max-width: 1200px; margin: 0 auto;
+  box-sizing: border-box;
+}
+#staff-scale-wrap { transform-origin: top left; }
+#osmd-container { width: 100%; }
+
+/* ── Bottom bar ── */
+.btn-share {
+  font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 4px;
+  border: 1px solid #D0D0D0; background: #fff; color: #1A1A1A; cursor: pointer;
+}
+.btn-share:hover { border-color: #1A1A1A; }
+.share-bar {
+  display: none; align-items: center; gap: 8px;
+  padding: 10px 20px; background: #F8F8F8; border-bottom: 1px solid #E0E0E0;
+}
+.share-label {
+  font-size: 12px; font-weight: 700; color: #6B6B6B;
+  text-transform: uppercase; letter-spacing: .06em; flex-shrink: 0;
+}
+.share-input {
+  flex: 1; min-width: 0; font-size: 13px; padding: 7px 10px;
+  border: 1px solid #D0D0D0; border-radius: 4px;
+  background: #fff; color: #1A1A1A;
+}
+.share-copy {
+  font-size: 12px; font-weight: 600; padding: 7px 14px; border-radius: 4px;
+  border: 1px solid #1A1A1A; background: #1A1A1A; color: #fff; cursor: pointer;
+  flex-shrink: 0; transition: background .1s;
+}
+.share-copy:hover { background: #333; }
+.share-copy.copied { background: #2E8B57; border-color: #2E8B57; }
+.brand-footer {
+  font-size: 10px; color: #999; text-align: center; padding: 10px 0 8px;
+  text-transform: uppercase; letter-spacing: .1em;
+  border-top: 1px solid #E0E0E0; background: #FFFFFF;
+}
+/* ── Print (Save Groove -> PDF via browser print dialog) ── */
+/* ── Responsive: tablet/mobile (sidebar becomes an overlay drawer) ── */
+@media (max-width: 1023px) {
+  .sidebar {
+    position: fixed; top: 0; left: 0; z-index: 100;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.18);
+  }
+  .sidebar-backdrop {
+    display: none;
+    position: fixed; inset: 0; z-index: 99;
+    background: rgba(0,0,0,0.35);
+  }
+  .sidebar-backdrop.visible { display: block; }
+  .main { width: 100%; }
+}
+
+/* ── Responsive: mobile (further compaction + bigger touch targets) ── */
+@media (max-width: 600px) {
+  .sidebar { width: 85vw; min-width: 0; }
+  .sidebar.collapsed { transform: translateX(-85vw); margin-right: -85vw; }
+
+  .top-bar { padding: 10px 12px; gap: 6px; }
+  .btn-settings, .btn-gen, .btn-play, .btn-stop, .btn-zoom {
+    padding: 10px 10px; font-size: 11px;
+  }
+  .style-select-wrap { margin-left: 0; width: 100%; order: 10; }
+  .play-status { width: 100%; order: 11; margin-left: 0; }
+
+  .mixer { padding: 10px 12px; gap: 10px; overflow-x: auto; }
+  .fader-track { height: 80px; }
+  input[type="range"].fader { height: 80px; }
+  .fader-channel-master { padding-left: 10px; }
+
+  .content-scroll { padding: 10px; overflow-x: auto; }
+  .staff-card { padding: 10px; }
+
+  .share-bar { padding: 8px 12px; flex-wrap: wrap; }
+  .share-label { display: none; }
+  .share-input { width: 100%; order: 1; }
+  .share-copy { order: 2; margin-left: auto; }
+
+  .brand-footer { padding: 8px 12px; }
+
+  /* Bigger touch targets - the visual size stays similar but the tappable
+     area grows, since 44px is the general comfortable-tap-target guideline */
+  .tog { padding: 8px 13px; font-size: 13px; }
+  .switch { width: 40px; height: 24px; }
+  .switch-track::before { width: 18px; height: 18px; }
+  .switch input:checked + .switch-track::before { transform: translateX(18px); }
+  .voice-toggle-row { padding: 9px 0; }
+}
+
+@media print {
+  .sidebar, .top-bar, .mixer, .share-bar, .brand-footer { display: none !important; }
+  body { background: #fff; padding: 0; height: auto; overflow: visible; }
+  .app { height: auto; display: block; }
+  .main { height: auto; overflow: visible; }
+  .content-scroll { overflow: visible; padding: 0; height: auto; }
+  .staff-card { border: none; box-shadow: none; padding: 0; max-width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      Groove Mixer
+      <button class="btn-close-sidebar" id="btnCloseSidebar" title="Close menu">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+    </div>
+
+    <div class="acc-section">
+      <button class="acc-trigger open" data-target="acc-structure">
+        Structure
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body open" id="acc-structure">
+        <div class="field-label">Time signature</div>
+        <select id="timeSig">
+          <option value="4/4" selected>4/4</option>
+        </select>
+        <div class="field-label">Measures</div>
+        <select id="measureCount">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="4" selected>4</option>
+          <option value="8">8</option>
+        </select>
+        <div class="voice-toggle-row" style="margin-top:12px;">
+          <span class="v-label">Color-code voices</span>
+          <label class="switch"><input type="checkbox" id="colorCodeToggle"><span class="switch-track"></span></label>
+        </div>
+        <div style="font-size:10px; color:#999; margin-top:4px; line-height:1.4;">Kick blue, snare red, everything else stays black.</div>
+      </div>
+    </div>
+
+    <div class="acc-section">
+      <button class="acc-trigger" data-target="acc-style">
+        Style
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-style">
+        <div class="field-label">Groove style</div>
+        <div class="radio-group" id="styleGroup">
+          <div class="tog on" data-style="rock">Rock/Pop</div>
+          <div class="tog" data-style="swing">Swing</div>
+        </div>
+        <div id="rockPopStyleControls">
+          <div class="voice-toggle-row" style="margin-top:12px;">
+            <span class="v-label">Halftime feel</span>
+            <label class="switch"><input type="checkbox" id="halftimeToggle"><span class="switch-track"></span></label>
+          </div>
+          <div class="voice-toggle-row" style="margin-top:4px;">
+            <span class="v-label">Ghost notes</span>
+            <label class="switch"><input type="checkbox" id="ghostNotesToggle"><span class="switch-track"></span></label>
+          </div>
+          <div id="ghostDetailcontrol" style="margin-top:8px;">
+            <div class="field-label" style="display:flex; justify-content:space-between;">
+              <span>Ghost density</span>
+              <span id="ghostDensityVal" style="color:#1A1A1A; font-weight:700;">40%</span>
+            </div>
+            <input type="range" id="ghostDensitySlider" min="0" max="100" value="40" step="5" style="width:100%;">
+            <div class="field-label">Ghost note beats</div>
+            <div class="radio-group" id="ghostBeatsGroup">
+              <div class="tog on" data-beat="1">1</div>
+              <div class="tog" data-beat="2">2</div>
+              <div class="tog on" data-beat="3">3</div>
+              <div class="tog" data-beat="4">4</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section style-swing-only" id="practiceFocusSection">
+      <button class="acc-trigger open" data-target="acc-practice-focus">
+        Practice Focus
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body open" id="acc-practice-focus">
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Ride + hi-hat-foot always play &mdash; choose which limb's vocabulary to drill against them.</div>
+        <div class="radio-group" id="practiceFocusGroup">
+          <div class="tog" data-focus="kick">Kick Only</div>
+          <div class="tog" data-focus="snare">Snare Only</div>
+          <div class="tog on" data-focus="both">Both</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section style-swing-only" id="readingLevelSection">
+      <button class="acc-trigger open" data-target="acc-reading-level">
+        Reading Level
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body open" id="acc-reading-level">
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Sets kick/snare density &amp; eligible positions together &mdash; fine-tune manually below afterward if needed.</div>
+        <div class="radio-group" id="readingLevelGroup">
+          <div class="tog" data-level="beginner">Beginner</div>
+          <div class="tog" data-level="intermediate">Intermediate</div>
+          <div class="tog on" data-level="advanced">Advanced</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section style-swing-only" id="kickTripletSection">
+      <button class="acc-trigger" data-target="acc-kick-triplet">
+        Kick Triplet Positions
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-kick-triplet">
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Kick defaults to simple 1 &amp; 3 (the classic swing feel) &mdash; enable extra triplet positions here for more syncopation.</div>
+        <div class="field-label" style="display:flex; justify-content:space-between;">
+          <span>Kick density</span>
+          <span id="kickTripletDensityVal" style="color:#1A1A1A; font-weight:700;">50%</span>
+        </div>
+        <input type="range" id="kickTripletDensitySlider" min="0" max="100" value="50" step="5" style="width:100%;">
+        <div class="field-label" style="margin-top:12px;">Eligible positions</div>
+        <div class="radio-group" id="kickTripletGroup" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; text-align:center;">
+          <div class="tog on" data-triplet="0">1</div>
+          <div class="tog" data-triplet="1">la</div>
+          <div class="tog on" data-triplet="2">li</div>
+          <div class="tog on" data-triplet="3">2</div>
+          <div class="tog" data-triplet="4">la</div>
+          <div class="tog on" data-triplet="5">li</div>
+          <div class="tog on" data-triplet="6">3</div>
+          <div class="tog" data-triplet="7">la</div>
+          <div class="tog on" data-triplet="8">li</div>
+          <div class="tog on" data-triplet="9">4</div>
+          <div class="tog" data-triplet="10">la</div>
+          <div class="tog on" data-triplet="11">li</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section style-swing-only" id="snareCompingSection">
+      <button class="acc-trigger" data-target="acc-snare-comping">
+        Snare Comping
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-snare-comping">
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Snare chords onto Ride's hits (1, 2, 3, 4, li) &mdash; "la" plays alone, since Ride always rests there.</div>
+        <div class="field-label" style="display:flex; justify-content:space-between;">
+          <span>Comping density</span>
+          <span id="snareCompingDensityVal" style="color:#1A1A1A; font-weight:700;">50%</span>
+        </div>
+        <input type="range" id="snareCompingDensitySlider" min="0" max="100" value="50" step="5" style="width:100%;">
+        <div class="field-label" style="margin-top:12px;">Eligible ride hits</div>
+        <div class="radio-group" id="snareCompingGroup" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center;">
+          <div class="tog on" data-ridehit="beat1">1</div>
+          <div class="tog on" data-ridehit="2a">2</div>
+          <div class="tog" data-ridehit="2la">la</div>
+          <div class="tog on" data-ridehit="2c">li</div>
+          <div class="tog" data-ridehit="beat3">3</div>
+          <div class="tog on" data-ridehit="4a">4</div>
+          <div class="tog" data-ridehit="4la">la</div>
+          <div class="tog on" data-ridehit="4c">li</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section" id="grooveFeelKickSection">
+      <button class="acc-trigger" data-target="acc-groove-feel-kick">
+        Groove Feel (Kick)
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-groove-feel-kick">
+        <div class="radio-group" id="grooveTypeGroup">
+          <div class="tog on" data-groove="eighth">8th</div>
+          <div class="tog" data-groove="sixteenth">16th</div>
+          <div class="tog" data-groove="mixed">Mixed</div>
+        </div>
+        <div id="kickSixteenthControlsWrapper">
+          <div class="field-label" style="margin-top:14px; display:flex; justify-content:space-between;">
+            <span>Kick density</span>
+            <span id="kickSixteenthDensityVal" style="color:#1A1A1A; font-weight:700;">35%</span>
+          </div>
+          <input type="range" id="kickSixteenthDensitySlider" min="0" max="100" value="35" step="5" style="width:100%;">
+          <div class="field-label" style="margin-top:12px;">Eligible positions <span style="text-transform:none; font-weight:400; color:#999;">(when 16th or mixed is selected above)</span></div>
+          <div class="radio-group" id="kickSixteenthGroup" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center;">
+            <div class="tog on" data-sixteenth="0">1</div>
+            <div class="tog on" data-sixteenth="1">e</div>
+            <div class="tog on" data-sixteenth="2">&amp;</div>
+            <div class="tog on" data-sixteenth="3">a</div>
+            <div class="tog on" data-sixteenth="4">2</div>
+            <div class="tog on" data-sixteenth="5">e</div>
+            <div class="tog on" data-sixteenth="6">&amp;</div>
+            <div class="tog on" data-sixteenth="7">a</div>
+            <div class="tog on" data-sixteenth="8">3</div>
+            <div class="tog on" data-sixteenth="9">e</div>
+            <div class="tog on" data-sixteenth="10">&amp;</div>
+            <div class="tog on" data-sixteenth="11">a</div>
+            <div class="tog on" data-sixteenth="12">4</div>
+            <div class="tog on" data-sixteenth="13">e</div>
+            <div class="tog on" data-sixteenth="14">&amp;</div>
+            <div class="tog on" data-sixteenth="15">a</div>
+          </div>
+          <div class="radio-group" style="margin-top:8px;">
+            <div class="tog on" id="btnKickPositionSelectAll" style="font-weight:600;">Select All</div>
+          </div>
+          <div class="field-label" style="margin-top:12px;">Quick presets</div>
+          <div class="radio-group" id="kickPositionPresetGroup">
+            <div class="tog" data-preset="quarters">Quarters Only</div>
+            <div class="tog" data-preset="eighths">Eighths Only</div>
+            <div class="tog" data-preset="all16">All 16ths</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section" id="hihatPatternSection">
+      <button class="acc-trigger" data-target="acc-hihat-pattern">
+        Hi-hat Pattern
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-hihat-pattern">
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Controls hi-hat only &mdash; kick keeps its own groove feel. Select more than one to randomize between them.</div>
+        <div class="radio-group" id="hihatPatternGroup">
+          <div class="tog" data-hihat-pattern="quarter">Quarter</div>
+          <div class="tog on" data-hihat-pattern="eighth">Eighth</div>
+          <div class="tog" data-hihat-pattern="sixteenth">Sixteenth</div>
+          <div class="tog" data-hihat-pattern="combo1">Combo 1</div>
+          <div class="tog" data-hihat-pattern="combo2">Combo 2</div>
+        </div>
+        <div class="radio-group" style="margin-top:8px;">
+          <div class="tog" id="btnHihatPatternSelectAll" style="font-weight:600;">Select All</div>
+        </div>
+        <div class="field-label" style="margin-top:14px;">Randomize by</div>
+        <div style="font-size:11px; color:#999; margin-bottom:8px; line-height:1.4;">Measure: one pattern per measure. Beat: a fresh pick for each of the 4 beats &mdash; good for funk-style hi-hat that shifts feel within a bar.</div>
+        <div class="radio-group" id="hihatRandomizeModeGroup">
+          <div class="tog on" data-randomize-mode="measure">Measure</div>
+          <div class="tog" data-randomize-mode="beat">Beat</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section" id="hihatOpenClosedSection">
+      <button class="acc-trigger" data-target="acc-hihat-open-closed">
+        Hi-hat Open/Closed
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-hihat-open-closed">
+        <div class="voice-toggle-row">
+          <span class="v-label">Open/closed marks</span>
+          <label class="switch"><input type="checkbox" id="hihatArticulationToggle"><span class="switch-track"></span></label>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="field-label" style="display:flex; justify-content:space-between;">
+            <span>Open density</span>
+            <span id="hihatOpenDensityVal" style="color:#1A1A1A; font-weight:700;">20%</span>
+          </div>
+          <input type="range" id="hihatOpenDensitySlider" min="0" max="100" value="20" step="5" style="width:100%;">
+        </div>
+        <div class="voice-toggle-row" style="margin-top:10px;">
+          <span class="v-label">Force every measure</span>
+          <label class="switch"><input type="checkbox" id="hihatOpenForceToggle"><span class="switch-track"></span></label>
+        </div>
+        <div style="font-size:10px; color:#999; margin-top:4px; line-height:1.4;">When on, checked positions below always open (ignores density) &mdash; good for practicing a specific spot every time.</div>
+        <div class="field-label" style="margin-top:12px;">Eligible eighth-note positions</div>
+        <div class="radio-group" id="hihatOpenEighthsGroup" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center;">
+          <div class="tog on" data-eighth="0">1</div>
+          <div class="tog on" data-eighth="1">&amp;</div>
+          <div class="tog on" data-eighth="2">2</div>
+          <div class="tog on" data-eighth="3">&amp;</div>
+          <div class="tog on" data-eighth="4">3</div>
+          <div class="tog on" data-eighth="5">&amp;</div>
+          <div class="tog on" data-eighth="6">4</div>
+          <div class="tog on" data-eighth="7">&amp;</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section" id="voicesSection">
+      <button class="acc-trigger" data-target="acc-voices">
+        Voices
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-voices">
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Turn voices on or off to refine coordination skills &mdash; ex. Kick and Snare only.</div>
+        <div class="voice-toggle-row">
+          <span class="v-label">Hi-hat</span>
+          <label class="switch"><input type="checkbox" checked data-voice="hihat"><span class="switch-track"></span></label>
+        </div>
+        <div class="voice-toggle-row">
+          <span class="v-label">Snare</span>
+          <label class="switch"><input type="checkbox" checked data-voice="snare"><span class="switch-track"></span></label>
+        </div>
+        <div class="voice-toggle-row">
+          <span class="v-label">Kick</span>
+          <label class="switch"><input type="checkbox" checked data-voice="kick"><span class="switch-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-section" id="accentsSection">
+      <button class="acc-trigger" data-target="acc-accents">
+        Accents
+        <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="acc-body" id="acc-accents">
+        <div class="field-label">Beat accents</div>
+        <div class="voice-toggle-row">
+          <span class="v-label">On downbeats</span>
+          <label class="switch"><input type="checkbox" id="accentDownbeatToggle"><span class="switch-track"></span></label>
+        </div>
+        <div class="voice-toggle-row">
+          <span class="v-label">On upbeats</span>
+          <label class="switch"><input type="checkbox" id="accentUpbeatToggle"><span class="switch-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Main ── -->
+  <div class="main">
+
+    <div class="top-bar">
+      <button class="btn-settings" id="btnSettings">
+        <svg class="settings-icon" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58z"/></svg>
+        Settings
+      </button>
+      <button class="btn-gen" id="btnGen">MIX IT UP!</button>
+      <button class="btn-play" id="btnPlay">&#9654; Play</button>
+      <button class="btn-stop" id="btnStop">&#9632; Stop</button>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <button class="btn-zoom" id="btnZoomOut" title="Zoom out">&#8722;</button>
+        <span id="zoomLabel" style="font-size:12px;color:#666;min-width:36px;text-align:center;">100%</span>
+        <button class="btn-zoom" id="btnZoomIn" title="Zoom in">&#43;</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+        <span style="font-size:11px;color:#6B6B6B;">Tempo: <span id="tempoVal">100</span> BPM</span>
+        <input type="range" id="tempo" min="40" max="220" value="100" step="1" style="width:100px;">
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#6B6B6B;margin-left:8px;">
+        <span class="switch"><input type="checkbox" id="loopToggle" checked><span class="switch-track"></span></span>
+        Loop
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#6B6B6B;margin-left:8px;">
+        <span class="switch"><input type="checkbox" id="metronomeToggle"><span class="switch-track"></span></span>
+        Metronome
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#6B6B6B;margin-left:8px;">
+        <span class="switch"><input type="checkbox" id="countInToggle"><span class="switch-track"></span></span>
+        Count-in
+      </label>
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+        <button class="btn-share" id="btnShareSettings">&#128279; Share Settings</button>
+        <button class="btn-share" id="btnSaveGroove">&#128190; Save Groove (PDF)</button>
+      </div>
+    </div>
+
+    <div class="share-bar" id="shareBar">
+      <span class="share-label">Link:</span>
+      <input class="share-input" id="shareInput" type="text" readonly>
+      <button class="share-copy" id="shareCopy">Copy</button>
+    </div>
+
+    <div class="mixer">
+      <div class="fader-channel">
+        <div class="fader-label">Kick</div>
+        <div class="fader-track"><input type="range" class="fader" id="faderKick" min="0" max="100" value="85" orient="vertical"></div>
+        <div class="fader-val" id="faderKickVal">85</div>
+      </div>
+      <div class="fader-channel">
+        <div class="fader-label">Snare</div>
+        <div class="fader-track"><input type="range" class="fader" id="faderSnare" min="0" max="100" value="80" orient="vertical"></div>
+        <div class="fader-val" id="faderSnareVal">80</div>
+      </div>
+      <div class="fader-channel">
+        <div class="fader-label">Hi-hat</div>
+        <div class="fader-track"><input type="range" class="fader" id="faderHihat" min="0" max="100" value="75" orient="vertical"></div>
+        <div class="fader-val" id="faderHihatVal">75</div>
+      </div>
+      <div class="fader-channel">
+        <div class="fader-label">Click</div>
+        <div class="fader-track"><input type="range" class="fader" id="faderClick" min="0" max="100" value="60" orient="vertical"></div>
+        <div class="fader-val" id="faderClickVal">60</div>
+      </div>
+      <div class="fader-channel fader-channel-master">
+        <div class="fader-label">Master</div>
+        <div class="fader-track"><input type="range" class="fader" id="faderMaster" min="0" max="100" value="85" orient="vertical"></div>
+        <div class="fader-val" id="faderMasterVal">85</div>
+      </div>
+      <span id="status" class="play-status">Ready.</span>
+    </div>
+
+    <div class="content-scroll">
+      <div class="staff-card">
+        <div id="staff-scale-wrap">
+          <div id="osmd-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="brand-footer">GROOVE MIXER</div>
+
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════
+// DRUM VOICE MAP
+// ══════════════════════════════════════════════════════════════════════
+const DRUM_VOICE_MAP = {
+  hihat_foot: { label: "Hi-hat w/ foot", displayStep: "B", displayOctave: 3, notehead: "x", stem: "down", voice: 2, midi: 44, color: "#000000" },
+  kick:       { label: "Kick drum",      displayStep: "D", displayOctave: 4, notehead: "normal", stem: "down", voice: 2, midi: 36, color: "#2255CC" },
+  floor_tom:  { label: "Floor tom",      displayStep: "F", displayOctave: 4, notehead: "normal", stem: "up", voice: 3, midi: 41, color: "#000000" },
+  rack_tom_2: { label: "Rack tom 2 (low)", displayStep: "A", displayOctave: 4, notehead: "normal", stem: "up", voice: 3, midi: 45, color: "#000000" },
+  snare:      { label: "Snare",          displayStep: "C", displayOctave: 5, notehead: "normal", stem: "up", voice: 3, midi: 38, color: "#CC2222" },
+  rack_tom_1: { label: "Rack tom 1 (high)", displayStep: "E", displayOctave: 5, notehead: "normal", stem: "up", voice: 3, midi: 48, color: "#000000" },
+  ride:       { label: "Ride cymbal",    displayStep: "A", displayOctave: 5, notehead: "x", stem: "up", voice: 1, midi: 51, color: "#000000" },
+  hihat:      { label: "Hi-hat",         displayStep: "G", displayOctave: 5, notehead: "x", stem: "up", voice: 1, midi: 42, color: "#000000" },
+  crash:      { label: "Crash cymbal",   displayStep: "A", displayOctave: 5, notehead: "x", stem: "up", voice: 1, midi: 49, color: "#000000" },
+};
+
+// ══════════════════════════════════════════════════════════════════════
+// MUSICXML DURATION HELPERS
+// ══════════════════════════════════════════════════════════════════════
+// DIVISIONS is mutable (not const) because triplet styles (Shuffle/Swing)
+// need a different ticks-per-quarter value than straight styles - 4
+// (sixteenth-note resolution) can't represent triplets at all, since it's
+// not divisible by 3. Triplet generations temporarily switch this to 12
+// (divisible by both 2 and 3) for that generation pass, then it's reset.
+// This is safer than threading a `divisions` parameter through every
+// function in the pipeline, since generation is fully synchronous - no
+// risk of two generations reading the value out from under each other.
+let DIVISIONS = 4;
+const STRAIGHT_DIVISIONS = 4;
+const TRIPLET_DIVISIONS = 12; // ticks per quarter note when a triplet style is active
+
+// Whether notehead color emission is active for the current generation
+// pass - set from state.colorCodeVoices at the start of generateAndRender,
+// same pattern as DIVISIONS above.
+let COLOR_CODE_VOICES = false;
+
+function durationTicks(type, dots) {
+  dots = dots || 0;
+  const base = {
+    whole: DIVISIONS * 4, half: DIVISIONS * 2, quarter: DIVISIONS, eighth: DIVISIONS / 2, "16th": DIVISIONS / 4,
+    // Triplet types only make sense when DIVISIONS is triplet-divisible (12).
+    // tripletEighth = one partial of a quarter-note triplet (1/3 of a beat).
+    // tripletQuarter = two partials tied together (2/3 of a beat) - this is
+    // exactly the "long" note in a swung/shuffled eighth pair.
+    tripletEighth: DIVISIONS / 3, tripletQuarter: (DIVISIONS / 3) * 2,
+  }[type];
+  if (base === undefined) throw new Error("Unknown note type: " + type);
+  return dots ? base * 1.5 : base;
+}
+
+function noteTypeToXml(type) {
+  // Triplet types render with the SAME visual notehead shape as their
+  // straight counterpart (an eighth still looks like an eighth) - the
+  // <time-modification>/<tuplet> elements are what signal it's a triplet,
+  // not the <type> value itself.
+  return {
+    whole: "whole", half: "half", quarter: "quarter", eighth: "eighth", "16th": "16th",
+    tripletEighth: "eighth", tripletQuarter: "quarter",
+  }[type];
+}
+
+function isTripletType(type) {
+  return type === "tripletEighth" || type === "tripletQuarter";
+}
+
+function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+
+// ══════════════════════════════════════════════════════════════════════
+// COMPOSITE MEASURE BUILDER
+// ══════════════════════════════════════════════════════════════════════
+function instrumentOnsetTicks(pattern) {
+  const onsets = new Map(); // tick -> { dynamic, articulation }
+  let cursor = 0;
+  for (const note of pattern) {
+    const ticks = durationTicks(note.type, note.dots);
+    if (!note.isRest) onsets.set(cursor, { dynamic: note.dynamic || "normal", articulation: note.articulation || null });
+    cursor += ticks;
+  }
+  return onsets;
+}
+
+function decomposeTicks(ticks) {
+  const table = [
+    { type: "whole", dots: 0, ticks: DIVISIONS * 4 },
+    { type: "half", dots: 1, ticks: DIVISIONS * 3 },
+    { type: "half", dots: 0, ticks: DIVISIONS * 2 },
+    { type: "quarter", dots: 1, ticks: DIVISIONS * 1.5 },
+    { type: "quarter", dots: 0, ticks: DIVISIONS },
+    { type: "tripletQuarter", dots: 0, ticks: (DIVISIONS / 3) * 2 }, // 2 triplet partials tied
+    { type: "eighth", dots: 1, ticks: DIVISIONS * 0.75 },
+    { type: "eighth", dots: 0, ticks: DIVISIONS / 2 },
+    { type: "tripletEighth", dots: 0, ticks: DIVISIONS / 3 }, // 1 triplet partial
+    { type: "16th", dots: 0, ticks: DIVISIONS / 4 },
+  ].sort((a, b) => b.ticks - a.ticks); // largest-first, since triplet entries don't sort neatly by insertion order
+  const result = [];
+  let remaining = ticks;
+  while (remaining > 0) {
+    const chunk = table.find((t) => t.ticks <= remaining);
+    if (!chunk) break;
+    result.push({ type: chunk.type, dots: chunk.dots });
+    remaining -= chunk.ticks;
+  }
+  return result;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// COMPOSITE MEASURE BUILDER
+// ══════════════════════════════════════════════════════════════════════
+// Each active onset's duration extends until the NEXT onset from ANY voice
+// (not a fixed global subdivision). This is what lets a straight-8th hi-hat
+// section and a 16th-syncopated kick section coexist correctly in the same
+// measure ("mixed" groove type) - the hi-hat keeps its natural eighth-note
+// value throughout, and only subdivides down to a 16th at the exact point
+// where another voice actually re-onsets mid-eighth. Forcing the whole
+// measure down to the busiest voice's resolution (the old approach) chopped
+// up perfectly good eighth notes into fragmented, unreadable 16ths+rests.
+function computeCompositeEvents(voicePatterns, beats, beatType) {
+  const measureTicks = beats * (DIVISIONS * 4 / beatType);
+
+  const onsetsByTick = new Map();
+  for (const [instrument, pattern] of Object.entries(voicePatterns)) {
+    const onsets = instrumentOnsetTicks(pattern);
+    for (const [tick, info] of onsets) {
+      if (!onsetsByTick.has(tick)) onsetsByTick.set(tick, []);
+      onsetsByTick.get(tick).push({ instrument, dynamic: info.dynamic, articulation: info.articulation });
+    }
+  }
+
+  const activeTicks = Array.from(onsetsByTick.keys()).sort((a, b) => a - b);
+  const events = [];
+
+  if (activeTicks.length === 0) {
+    events.push({ tick: 0, ticks: measureTicks, instruments: null });
+  } else {
+    if (activeTicks[0] > 0) {
+      events.push({ tick: 0, ticks: activeTicks[0], instruments: null });
+    }
+    for (let i = 0; i < activeTicks.length; i++) {
+      const tick = activeTicks[i];
+      const nextTick = i + 1 < activeTicks.length ? activeTicks[i + 1] : measureTicks;
+      events.push({ tick, ticks: nextTick - tick, instruments: onsetsByTick.get(tick) });
+    }
+  }
+
+  events.sort((a, b) => a.tick - b.tick);
+  return { events, measureTicks };
+}
+
+// Groups beamable (eighth-or-shorter) notes into per-beat runs, producing a
+// single continuous level-1 beam bracket across the whole run even when
+// durations are mixed (e.g. an eighth + two sixteenths within one beat -
+// "1 e &" style groupings). Level-2 (sixteenth) beams only connect where
+// sixteenths are actually adjacent within the run; an isolated sixteenth
+// next to an eighth gets a partial "hook" instead, matching standard
+// notation convention for mixed subdivisions.
+function computeBeamPlan(events, ticksPerBeat) {
+  const beamInfo = new Map();
+  const eventsByBeat = new Map();
+  for (const ev of events) {
+    const beatIdx = Math.floor(ev.tick / ticksPerBeat);
+    if (!eventsByBeat.has(beatIdx)) eventsByBeat.set(beatIdx, []);
+    eventsByBeat.get(beatIdx).push(ev);
+  }
+
+  for (const beatEvents of eventsByBeat.values()) {
+    let run = [];
+    const flushRun = () => {
+      if (run.length >= 2) {
+        run.forEach((ev, i) => {
+          const level1 = i === 0 ? "begin" : i === run.length - 1 ? "end" : "continue";
+          beamInfo.set(ev, { level1, level2: null });
+        });
+        run.forEach((ev, i) => {
+          if (ev.ticks !== DIVISIONS / 4) return; // only 16ths need a level-2 beam
+          const prevIs16 = i > 0 && run[i - 1].ticks === DIVISIONS / 4;
+          const nextIs16 = i < run.length - 1 && run[i + 1].ticks === DIVISIONS / 4;
+          const info = beamInfo.get(ev);
+          if (prevIs16 && nextIs16) info.level2 = "continue";
+          else if (!prevIs16 && nextIs16) info.level2 = "begin";
+          else if (prevIs16 && !nextIs16) info.level2 = "end";
+          else info.level2 = i === 0 ? "forward hook" : "backward hook";
+        });
+      }
+      run = [];
+    };
+    for (const ev of beatEvents) {
+      // A single rested triplet partial in the MIDDLE of a group (like the
+      // rest between ride's two triplet hits) doesn't break the beam - real
+      // notation beams straight across it, since the whole thing is one
+      // tuplet. This only ever matches triplet-eighth-sized rests (DIVISIONS/3),
+      // which can't occur at all in the straight system (DIVISIONS=4 isn't
+      // divisible by 3), so this is a no-op for rock/pop.
+      const isSingleTripletRest = ev.instruments === null && ev.ticks === DIVISIONS / 3;
+      if (isSingleTripletRest && run.length > 0) {
+        continue; // skip silently - don't break the run, don't add the rest to it
+      }
+
+      // "Flagged" = has at least one flag to beam - straight eighth/16th
+      // (and dotted-eighth), plus triplet-eighth (1 flag, same as a plain
+      // eighth). Explicitly excludes tripletQuarter (2 tied partials,
+      // behaves like an unflagged quarter note - nothing to beam).
+      const flaggedDurations = new Set([DIVISIONS / 2, DIVISIONS / 4, DIVISIONS / 3, DIVISIONS * 0.75]);
+      const flagged = ev.instruments !== null && flaggedDurations.has(ev.ticks);
+      if (flagged) run.push(ev);
+      else flushRun();
+    }
+    flushRun();
+  }
+  return beamInfo;
+}
+
+// Emits XML for one voice's worth of events (notes/rests/chords/beams/
+// tuplets/notations). Shared between the single-voice rock/pop composite
+// builder and the 2-voice swing builder, since the per-note logic
+// (chording, beaming, tuplet brackets, articulation/accent notations) is
+// identical either way - only which <voice> number gets stamped differs.
+// Groups events by beat and marks tuplet start/stop based on the FIRST and
+// LAST triplet-type active note WITHIN THAT SPECIFIC BEAT - not "does this
+// tick happen to land on any beat boundary" (the old check), which broke
+// down for sparse/gapped triplet notes: an isolated hit could get a
+// "start" with no matching "stop" until it randomly found the next
+// beat-aligned note, however many beats away that happened to be. This
+// guarantees every bracket spans exactly one beat, never more or less.
+function computeTripletBracketPlan(events, ticksPerBeat) {
+  const bracketInfo = new Map();
+  const eventsByBeat = new Map();
+  for (const ev of events) {
+    const beatIdx = Math.floor(ev.tick / ticksPerBeat);
+    if (!eventsByBeat.has(beatIdx)) eventsByBeat.set(beatIdx, []);
+    eventsByBeat.get(beatIdx).push(ev);
+  }
+  for (const beatEvents of eventsByBeat.values()) {
+    const tripletActiveEvents = beatEvents.filter((ev) => {
+      if (ev.instruments === null) return false;
+      const decomposedType = decomposeTicks(ev.ticks)[0].type;
+      return isTripletType(decomposedType);
+    });
+    if (tripletActiveEvents.length === 0) continue;
+    tripletActiveEvents.forEach((ev, i) => {
+      bracketInfo.set(ev, { start: i === 0, stop: i === tripletActiveEvents.length - 1 });
+    });
+  }
+  return bracketInfo;
+}
+
+function emitVoiceEventsXml(events, ticksPerBeat, voiceNumber, stemDirection) {
+  stemDirection = stemDirection || "up";
+  const beamPlan = computeBeamPlan(events, ticksPerBeat);
+  const tripletBracketPlan = computeTripletBracketPlan(events, ticksPerBeat);
+  let xml = "";
+
+  for (const ev of events) {
+    if (ev.instruments === null) {
+      for (const piece of decomposeTicks(ev.ticks)) {
+        xml += "      <note>\n";
+        if (ev.restDisplayStep) {
+          xml += "        <rest>\n          <display-step>" + ev.restDisplayStep + "</display-step>\n          <display-octave>" + ev.restDisplayOctave + "</display-octave>\n        </rest>\n";
+        } else {
+          xml += "        <rest/>\n";
+        }
+        xml += "        <duration>" + durationTicks(piece.type, piece.dots) + "</duration>\n";
+        xml += "        <voice>" + voiceNumber + "</voice>\n";
+        xml += "        <type>" + noteTypeToXml(piece.type) + "</type>\n";
+        if (piece.dots) xml += "        <dot/>\n";
+        if (isTripletType(piece.type)) {
+          xml += "        <time-modification>\n          <actual-notes>3</actual-notes>\n          <normal-notes>2</normal-notes>\n        </time-modification>\n";
+        }
+        xml += "      </note>\n";
+      }
+      continue;
+    }
+
+    const decomposedPiece = decomposeTicks(ev.ticks)[0];
+    const decomposedType = decomposedPiece.type;
+    const xmlType = ev.ticks === DIVISIONS / 2 ? "eighth" : ev.ticks === DIVISIONS / 4 ? "16th" : null;
+    const plan = beamPlan.get(ev);
+    const isTriplet = isTripletType(decomposedType);
+    const bracketInfo = tripletBracketPlan.get(ev);
+    const isTripletStart = bracketInfo ? bracketInfo.start : false;
+    const isTripletStop = bracketInfo ? bracketInfo.stop : false;
+
+    ev.instruments.forEach((entry, idx) => {
+      const instrument = entry.instrument;
+      const dynamic = entry.dynamic || "normal";
+      const articulation = entry.articulation || null;
+      const mapEntry = DRUM_VOICE_MAP[instrument];
+      const isGhost = dynamic === "ghost";
+
+      xml += "      <note>\n";
+      if (idx > 0) xml += "        <chord/>\n";
+      xml += "        <unpitched>\n";
+      xml += "          <display-step>" + mapEntry.displayStep + "</display-step>\n";
+      xml += "          <display-octave>" + mapEntry.displayOctave + "</display-octave>\n";
+      xml += "        </unpitched>\n";
+      xml += "        <duration>" + ev.ticks + "</duration>\n";
+      xml += "        <voice>" + voiceNumber + "</voice>\n";
+      const typeSizeAttr = isGhost ? ' size="cue"' : "";
+      xml += "        <type" + typeSizeAttr + ">" + (xmlType || noteTypeToXml(decomposedType)) + "</type>\n";
+      if (!xmlType && decomposedPiece.dots) xml += "        <dot/>\n";
+      if (isTriplet) {
+        xml += "        <time-modification>\n          <actual-notes>3</actual-notes>\n          <normal-notes>2</normal-notes>\n        </time-modification>\n";
+      }
+      xml += "        <stem>" + stemDirection + "</stem>\n";
+      const colorAttr = COLOR_CODE_VOICES ? ' color="' + mapEntry.color + '"' : "";
+      xml += '        <notehead filled="yes"' + colorAttr + '>' + mapEntry.notehead + "</notehead>\n";
+      if (idx === 0 && plan) {
+        if (plan.level1) xml += '        <beam number="1">' + plan.level1 + "</beam>\n";
+        if (plan.level2) xml += '        <beam number="2">' + plan.level2 + "</beam>\n";
+      }
+      const notationParts = [];
+      // Tuplet brackets explicitly placed to match stem direction (below
+      // for stems-down voice 1, above for stems-up voice 2/rock-pop) -
+      // without this, the renderer's auto-placement was producing
+      // inconsistent up/down brackets.
+      const tupletPlacement = stemDirection === "down" ? "below" : "above";
+      if (idx === 0 && isTripletStart) {
+        notationParts.push('          <tuplet type="start" number="1" bracket="no" placement="' + tupletPlacement + '"/>\n');
+      }
+      if (idx === 0 && isTripletStop) {
+        notationParts.push('          <tuplet type="stop" number="1" placement="' + tupletPlacement + '"/>\n');
+      }
+      if (articulation === "open") {
+        notationParts.push('          <technical>\n            <harmonic default-y="45" placement="above"/>\n          </technical>\n');
+      } else if (articulation === "closed") {
+        notationParts.push('          <technical>\n            <stopped default-y="45" placement="above"/>\n          </technical>\n');
+      }
+      if (dynamic === "accent") {
+        notationParts.push("          <articulations>\n            <accent placement=\"above\"/>\n          </articulations>\n");
+      }
+      if (notationParts.length > 0) {
+        xml += "        <notations>\n" + notationParts.join("") + "        </notations>\n";
+      }
+      xml += '        <instrument id="' + instrument + '"/>\n';
+      xml += "      </note>\n";
+    });
+  }
+
+  return xml;
+}
+
+function buildCompositeMeasureXml(voicePatterns, opts) {
+  const measureNumber = opts.measureNumber, beats = opts.beats || 4, beatType = opts.beatType || 4;
+  const { events, measureTicks } = computeCompositeEvents(voicePatterns, beats, beatType);
+
+  let xml = '    <measure number="' + measureNumber + '">\n';
+  if (measureNumber === 1) {
+    xml += "      <attributes>\n";
+    xml += "        <divisions>" + DIVISIONS + "</divisions>\n";
+    xml += "        <clef>\n          <sign>percussion</sign>\n        </clef>\n";
+    xml += "        <staff-details>\n          <staff-lines>5</staff-lines>\n        </staff-details>\n";
+    xml += "        <time>\n          <beats>" + beats + "</beats>\n          <beat-type>" + beatType + "</beat-type>\n        </time>\n";
+    xml += "      </attributes>\n";
+  }
+
+  const ticksPerBeat = DIVISIONS * 4 / beatType;
+  xml += emitVoiceEventsXml(events, ticksPerBeat, 1, "up");
+  xml += "    </measure>\n";
+  return xml;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// FULL DOCUMENT BUILDER
+// ══════════════════════════════════════════════════════════════════════
+function buildScoreDocument(measuresXml, opts) {
+  opts = opts || {};
+  const partName = opts.partName || "Drum Set";
+  const PART_ID = "P1";
+
+  let scoreInstruments = "";
+  let midiInstruments = "";
+  for (const [key, entry] of Object.entries(DRUM_VOICE_MAP)) {
+    scoreInstruments += '      <score-instrument id="' + key + '">\n        <instrument-name>' + entry.label + "</instrument-name>\n      </score-instrument>\n";
+    midiInstruments += '      <midi-instrument id="' + key + '">\n        <midi-channel>10</midi-channel>\n        <midi-unpitched>' + entry.midi + "</midi-unpitched>\n      </midi-instrument>\n";
+  }
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  xml += '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n';
+  xml += '<score-partwise version="4.0">\n  <part-list>\n    <score-part id="' + PART_ID + '">\n';
+  xml += "      <part-name>" + partName + "</part-name>\n" + scoreInstruments + midiInstruments;
+  xml += "    </score-part>\n  </part-list>\n  <part id=\"" + PART_ID + "\">\n";
+  xml += measuresXml.join("");
+  xml += "  </part>\n</score-partwise>\n";
+  return xml;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// PATTERN LIBRARY (rock/pop) - organized by groove type: eighth / sixteenth / mixed
+// Notes can carry a `dynamic`: "normal" (default), "accent", or "ghost".
+// Ghost notes render with a parenthesized notehead and trigger at lower
+// playback velocity; accents render/play at full strength.
+// ══════════════════════════════════════════════════════════════════════
+const Q = { type: "quarter", dots: 0 };
+const QR = { type: "quarter", dots: 0, isRest: true };
+const E = { type: "eighth", dots: 0 };
+const ER = { type: "eighth", dots: 0, isRest: true };
+const S = { type: "16th", dots: 0 };
+
+const rep = (note, n) => Array.from({ length: n }, () => Object.assign({}, note));
+
+// N evenly-spaced notes of one type, with specific indices marked "accent"
+// (everything else "normal"). Handy for e.g. accenting downbeats within a
+// steady 8th/16th stream.
+function buildAccentPattern(unitType, count, accentIndices) {
+  return Array.from({ length: count }, (_, i) => ({
+    type: unitType, dots: 0, isRest: false,
+    dynamic: accentIndices.includes(i) ? "accent" : "normal",
+  }));
+}
+
+// A full 16-step (16th-note resolution) measure, with only `hitIndices`
+// sounding and everything else a rest. `dynamicByIndex` optionally tags
+// specific hit indices as "accent" or "ghost" (default "normal" if hit).
+function steps16(hitIndices, dynamicByIndex) {
+  dynamicByIndex = dynamicByIndex || {};
+  return Array.from({ length: 16 }, (_, i) => ({
+    type: "16th", dots: 0,
+    isRest: !hitIndices.includes(i),
+    dynamic: dynamicByIndex[i] || "normal",
+  }));
+}
+
+// One-beat rhythm cell repeated across all 4 beats of the measure - used
+// for the hi-hat "combo" patterns (a mixed eighth+sixteenth cell that
+// isn't a uniform subdivision, unlike straight_8ths/straight_16ths).
+function repeatCellAcrossMeasure(cellNotes) {
+  const result = [];
+  for (let b = 0; b < 4; b++) {
+    for (const n of cellNotes) result.push(Object.assign({}, n));
+  }
+  return result;
+}
+
+const PATTERN_LIBRARY = {
+  hihat: {
+    // ── 8th-based ──
+    straight_8ths: { notes: rep(Object.assign({}, E, { isRest: false }), 8) },
+    eighth_downbeat_accent: { notes: buildAccentPattern("eighth", 8, [0, 2, 4, 6]) },
+    quarter_pulse: { notes: rep(Object.assign({}, Q, { isRest: false }), 4) },
+    // ── 16th-based ──
+    straight_16ths: { notes: rep(Object.assign({}, S, { isRest: false }), 16) },
+    sixteenths_downbeat_accent: { notes: buildAccentPattern("16th", 16, [0, 4, 8, 12]) },
+    // ── Mixed 8th/16th ──
+    boom_chick_16: {
+      // Beats 1-2 straight 8ths, beats 3-4 open up into 16ths (driving lift into beat 3).
+      notes: rep(Object.assign({}, E, { isRest: false }), 4).concat(rep(Object.assign({}, S, { isRest: false }), 8)),
+    },
+    chick_boom_16: {
+      // Reverse: 16ths first, settling into 8ths for beats 3-4.
+      notes: rep(Object.assign({}, S, { isRest: false }), 8).concat(rep(Object.assign({}, E, { isRest: false }), 4)),
+    },
+    // ── Combo cells: one mixed-subdivision rhythm cell repeated every beat ──
+    // "1 e &": two sixteenths (positions "1" and "e") then one eighth
+    // (spanning "&" and "a" as a single longer note starting on the "&").
+    combo_1_e_and: {
+      notes: repeatCellAcrossMeasure([
+        Object.assign({}, S, { isRest: false }),
+        Object.assign({}, S, { isRest: false }),
+        Object.assign({}, E, { isRest: false }),
+      ]),
+    },
+    // "1 & a": one eighth (spanning "1" and "e" as a single note starting
+    // on "1") then two sixteenths (positions "&" and "a").
+    combo_1_and_a: {
+      notes: repeatCellAcrossMeasure([
+        Object.assign({}, E, { isRest: false }),
+        Object.assign({}, S, { isRest: false }),
+        Object.assign({}, S, { isRest: false }),
+      ]),
+    },
+  },
+  kick: {
+    // ── 8th-based (works fine under a sixteenth hihat too) ──
+    one_and_three: { notes: [Object.assign({}, Q, { isRest: false }), QR, Object.assign({}, Q, { isRest: false }), QR] },
+    four_on_floor: { notes: rep(Object.assign({}, Q, { isRest: false }), 4) },
+    one_and_of_three_and_four: {
+      notes: [Object.assign({}, Q, { isRest: false }), QR, ER, Object.assign({}, E, { isRest: false }), Object.assign({}, Q, { isRest: false })],
+    },
+    one_and_of_two_three: {
+      // Beat 1, then the actual "&" of beat 2 (not the downbeat), then beat 3, rest through 4.
+      notes: [Object.assign({}, Q, { isRest: false }), ER, Object.assign({}, E, { isRest: false }), Object.assign({}, Q, { isRest: false }), QR],
+    },
+    // ── Upbeat-focused (kick on the "&" - the off-beat 8th, not the downbeat) ──
+    and_of_two_and_four: {
+      // Rest through beat 1, hit the "&" of 2, rest through beat 3, hit the "&" of 4.
+      notes: [QR, ER, Object.assign({}, E, { isRest: false }), QR, ER, Object.assign({}, E, { isRest: false })],
+    },
+    and_of_one_three_four: {
+      // Hit the "&" of 1, then beat 3 straight, then the "&" of 4.
+      notes: [ER, Object.assign({}, E, { isRest: false }), QR, Object.assign({}, Q, { isRest: false }), ER, Object.assign({}, E, { isRest: false })],
+    },
+    all_upbeats: {
+      // Every single kick hit lands on an "&" - no downbeats at all. Reggae/ska-style.
+      notes: [
+        ER, Object.assign({}, E, { isRest: false }),
+        ER, Object.assign({}, E, { isRest: false }),
+        ER, Object.assign({}, E, { isRest: false }),
+        ER, Object.assign({}, E, { isRest: false }),
+      ],
+    },
+    // ── 16th-syncopated (needs the finer grid to make sense) ──
+    kick_16th_syncopated_a: { notes: steps16([0, 6, 8, 14]) },   // 1, "&" of 2, 3, "&" of 4
+    kick_16th_syncopated_b: { notes: steps16([0, 3, 8, 11]) },   // 1, "a" of 1, 3, "a" of 3
+    kick_16th_syncopated_c: { notes: steps16([0, 4, 6, 12, 14]) }, // 1, 2, "&" of 2, 4, "&" of 4 - upbeat-heavy
+    // ── Halftime feel (confined to the front half of the bar - beats 1 & 2 only) ──
+    halftime_kick_a: { notes: [Object.assign({}, Q, { isRest: false }), QR, QR, QR] }, // just beat 1, rest of bar open
+    halftime_kick_b: {
+      // Beat 1, then the "&" of 2 - classic halftime syncopation.
+      notes: [Object.assign({}, Q, { isRest: false }), ER, Object.assign({}, E, { isRest: false }), QR, QR],
+    },
+    halftime_kick_c: { notes: [Object.assign({}, Q, { isRest: false }), Object.assign({}, Q, { isRest: false }), QR, QR] }, // beats 1 & 2
+    halftime_kick_d: { notes: steps16([0, 3, 6]) }, // 1, "a" of 1, "&" of 2 - busier front-half syncopation
+  },
+  snare: {
+    backbeat_2_4: { notes: [QR, Object.assign({}, Q, { isRest: false, dynamic: "accent" }), QR, Object.assign({}, Q, { isRest: false, dynamic: "accent" })] },
+    snare_on_3: { notes: [QR, QR, Object.assign({}, Q, { isRest: false, dynamic: "accent" }), QR] }, // halftime feel - snare only on beat 3
+  },
+};
+
+// Single-beat rhythm cells for each hi-hat pattern - every current hi-hat
+// pattern is already built from one of these repeated 4 times, so the same
+// cell can be reused for beat-level randomization: instead of picking one
+// pattern for the whole measure, pick independently per beat and
+// concatenate 4 cells together (funk-style hi-hat commonly varies rhythm
+// within a single measure, not just measure-to-measure).
+const HIHAT_BEAT_CELLS = {
+  quarter_pulse: [Object.assign({}, Q, { isRest: false })],
+  straight_8ths: [Object.assign({}, E, { isRest: false }), Object.assign({}, E, { isRest: false })],
+  straight_16ths: [
+    Object.assign({}, S, { isRest: false }), Object.assign({}, S, { isRest: false }),
+    Object.assign({}, S, { isRest: false }), Object.assign({}, S, { isRest: false }),
+  ],
+  combo_1_e_and: [
+    Object.assign({}, S, { isRest: false }), Object.assign({}, S, { isRest: false }), Object.assign({}, E, { isRest: false }),
+  ],
+  combo_1_and_a: [
+    Object.assign({}, E, { isRest: false }), Object.assign({}, S, { isRest: false }), Object.assign({}, S, { isRest: false }),
+  ],
+};
+
+// Builds a full measure's hi-hat notes by picking a random pattern's beat
+// cell independently for EACH of the 4 beats, rather than one pattern for
+// the whole measure.
+function buildBeatRandomizedHihatNotes(selectedPatternUiKeys) {
+  const notes = [];
+  for (let beat = 0; beat < 4; beat++) {
+    const uiKey = selectedPatternUiKeys[Math.floor(Math.random() * selectedPatternUiKeys.length)];
+    const libraryKey = HIHAT_PATTERN_MAP[uiKey] || HIHAT_PATTERN_MAP.eighth;
+    const cell = HIHAT_BEAT_CELLS[libraryKey];
+    for (const n of cell) notes.push(Object.assign({}, n));
+  }
+  return notes;
+}
+
+const HALFTIME_KICK_POOL = [
+  { key: "halftime_kick_a", weight: 3 },
+  { key: "halftime_kick_b", weight: 4 },
+  { key: "halftime_kick_c", weight: 2 },
+  { key: "halftime_kick_d", weight: 3 },
+];
+
+// Ghost-note generator: the backbeat accents on beat 2 & 4 always stay fixed
+// (that's what defines the groove), but the ghost strokes filling the other
+// Hi-hat open/closed articulation: each active hihat hit has `openDensityPercent`
+// chance of being marked "open" (small "o" above the note). Whichever hit
+// comes immediately after an open one gets explicitly marked "closed" (a
+// "+" above the note) - matching real notation convention, where a plain
+// unmarked note is already assumed closed by default and only the hit
+// right after an open needs the explicit "+" showing the foot closed again.
+// eligibleEighths: array of 0-7 indices (0="1", 1="&", 2="2", 3="&", 4="3",
+// 5="&", 6="4", 7="&") - the open-density roll only applies at eligible
+// eighth-note positions, mirroring the ghost-note beat-eligibility idea but
+// at finer (eighth-note) resolution.
+function applyHihatArticulation(notes, openDensityPercent, eligibleEighths, forceMode) {
+  const result = notes.map((n) => Object.assign({}, n));
+  let prevWasOpen = false;
+  let cursor = 0;
+  for (const n of result) {
+    const ticks = durationTicks(n.type, n.dots);
+    if (n.isRest) {
+      cursor += ticks;
+      continue;
+    }
+    const eighthIndex = Math.floor(cursor / 2) % 8;
+    const isEligible = eligibleEighths.includes(eighthIndex);
+    if (forceMode && isEligible) {
+      // Forced positions are guaranteed open every measure, regardless of
+      // density - and take priority over the automatic "closed" rule below,
+      // so two forced-open positions in a row don't get an erroneous
+      // "closed" mark stuck between them.
+      n.articulation = "open";
+      prevWasOpen = true;
+    } else if (prevWasOpen) {
+      n.articulation = "closed";
+      prevWasOpen = false;
+    } else if (!forceMode && isEligible && Math.random() * 100 < openDensityPercent) {
+      n.articulation = "open";
+      prevWasOpen = true;
+    }
+    cursor += ticks;
+  }
+  return result;
+}
+
+// Generative kick pattern for the "sixteenth" groove feel: any of the 16
+// sixteenth-note slots can independently get a hit, gated by density and
+// which positions are left eligible - same density+eligibility architecture
+// as ghost notes and hi-hat open marks, rather than picking from a small
+// fixed set of hand-written patterns (which was only ever covering a
+// handful of the 16 possible positions).
+function generateSixteenthKickPattern(densityPercent, eligiblePositions) {
+  const hitIndices = [];
+  for (let tick = 0; tick < 16; tick++) {
+    if (eligiblePositions.includes(tick) && Math.random() * 100 < densityPercent) {
+      hitIndices.push(tick);
+    }
+  }
+  return steps16(hitIndices);
+}
+
+// "Mixed" groove feel kick: identical density+eligibility mechanism to the
+// straight sixteenth kick, EXCEPT beat 1 (tick 0) gets its own dedicated
+// probability, decoupled from the general per-position density. Beat 1 is
+// the groove's anchor - it should land reliably, not just as often as any
+// other syncopated 16th-note slot happens to roll. Still respects the
+// eligibility grid: if position 0 has been explicitly unchecked, it's
+// never forced.
+function generateMixedKickPattern(densityPercent, eligiblePositions, beat1Percent) {
+  const hitIndices = [];
+  if (eligiblePositions.includes(0) && Math.random() * 100 < beat1Percent) {
+    hitIndices.push(0);
+  }
+  for (let tick = 1; tick < 16; tick++) {
+    if (eligiblePositions.includes(tick) && Math.random() * 100 < densityPercent) {
+      hitIndices.push(tick);
+    }
+  }
+  return steps16(hitIndices);
+}
+
+// 16th-slots are randomized per generation - both HOW OFTEN they appear
+// (density) and WHICH beats are eligible to receive them at all.
+function generateGhostSnarePattern(densityPercent, eligibleBeats, accentBeats) {
+  accentBeats = accentBeats || [2, 4];
+  const ACCENT_TICKS = new Set(accentBeats.map((b) => (b - 1) * 4));
+  const hitIndices = [];
+  const dynamicByIndex = {};
+
+  for (let tick = 0; tick < 16; tick++) {
+    const beatNumber = Math.floor(tick / 4) + 1; // 1-indexed beat (1,2,3,4)
+    if (ACCENT_TICKS.has(tick)) {
+      hitIndices.push(tick);
+      dynamicByIndex[tick] = "accent";
+    } else if (eligibleBeats.includes(beatNumber) && Math.random() * 100 < densityPercent) {
+      hitIndices.push(tick);
+      dynamicByIndex[tick] = "ghost";
+    }
+  }
+  return steps16(hitIndices, dynamicByIndex);
+}
+
+// Hi-hat is controlled independently of everything else (style, groove feel,
+// kick) via its own dedicated 3-way selector - a direct deterministic pick,
+// not a weighted random pool like the other instruments.
+// Switches the global tick grid before a generation pass. Shuffle/Swing
+// need the triplet-divisible grid (12 ticks/quarter); every other style
+// uses the normal straight grid (4 ticks/quarter). Must be called BEFORE
+// generateStyleMeasure/buildCompositeMeasureXml for that pass, since those
+// functions read the current value of DIVISIONS rather than taking it as
+// an argument.
+function setDivisionsForStyle(styleName) {
+  DIVISIONS = (styleName === "shuffle" || styleName === "swing") ? TRIPLET_DIVISIONS : STRAIGHT_DIVISIONS;
+}
+
+const HIHAT_PATTERN_MAP = {
+  quarter: "quarter_pulse",
+  eighth: "straight_8ths",
+  sixteenth: "straight_16ths",
+  combo1: "combo_1_e_and",
+  combo2: "combo_1_and_a",
+};
+
+const STYLE_PROFILES = {
+  rock: {
+    eighth: {
+      hihat: [
+        { key: "straight_8ths", weight: 11 },
+        { key: "eighth_downbeat_accent", weight: 2 },
+        { key: "quarter_pulse", weight: 3 },
+      ],
+      kick: [
+        { key: "one_and_three", weight: 5 },
+        { key: "one_and_of_three_and_four", weight: 6 },
+        { key: "one_and_of_two_three", weight: 3 },
+        { key: "and_of_two_and_four", weight: 4 },
+        { key: "and_of_one_three_four", weight: 2 },
+        { key: "all_upbeats", weight: 1 },
+        { key: "four_on_floor", weight: 2 },
+      ],
+      snare: [{ key: "backbeat_2_4", weight: 10 }],
+    },
+    sixteenth: {
+      hihat: [
+        { key: "straight_16ths", weight: 10 },
+        { key: "sixteenths_downbeat_accent", weight: 7 },
+      ],
+      kick: [
+        { key: "one_and_three", weight: 4 },
+        { key: "kick_16th_syncopated_a", weight: 3 },
+        { key: "kick_16th_syncopated_b", weight: 5 },
+        { key: "kick_16th_syncopated_c", weight: 5 },
+        { key: "four_on_floor", weight: 2 },
+      ],
+      snare: [{ key: "backbeat_2_4", weight: 10 }],
+    },
+    mixed: {
+      hihat: [
+        { key: "boom_chick_16", weight: 9 },
+        { key: "chick_boom_16", weight: 6 },
+        { key: "straight_8ths", weight: 5 },
+      ],
+      kick: [
+        { key: "one_and_of_three_and_four", weight: 3 },
+        { key: "kick_16th_syncopated_a", weight: 4 },
+        { key: "one_and_of_two_three", weight: 3 },
+        { key: "and_of_one_three_four", weight: 2 },
+        { key: "all_upbeats", weight: 1 },
+        { key: "four_on_floor", weight: 2 },
+        { key: "and_of_two_and_four", weight: 2 },
+      ],
+      snare: [{ key: "backbeat_2_4", weight: 10 }],
+    },
+  },
+};
+
+function pickWeighted(options) {
+  const total = options.reduce((sum, o) => sum + o.weight, 0);
+  let r = Math.random() * total;
+  for (const opt of options) {
+    if (r < opt.weight) return opt.key;
+    r -= opt.weight;
+  }
+  return options[options.length - 1].key;
+}
+
+// ghostConfig: { enabled, density (0-100), beats (array of 1-4) }
+// Walks a pattern tracking tick position, tagging each active note's dynamic
+// based on whether it lands on a downbeat (tick % 4 === 0) or an upbeat
+// (anything else). Used for the kick accent toggles.
+// Upgrades any "normal"-dynamic active note landing on a downbeat/upbeat to
+// "accent", per the toggles. Never touches ghost notes (that would defeat
+// their purpose) or notes already accented (e.g. the snare backbeat).
+function applyBeatAccents(notes, accentDownbeats, accentUpbeats) {
+  let cursor = 0;
+  return notes.map((n) => {
+    const ticks = durationTicks(n.type, n.dots);
+    let result = n;
+    const dynamic = n.dynamic || "normal";
+    if (!n.isRest && dynamic === "normal") {
+      const isDownbeat = cursor % 4 === 0;
+      const shouldAccent = (isDownbeat && accentDownbeats) || (!isDownbeat && accentUpbeats);
+      if (shouldAccent) result = Object.assign({}, n, { dynamic: "accent" });
+    }
+    cursor += ticks;
+    return result;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SWING ENGINE - single-voice composite system, matching rock/pop's
+// architecture exactly (all instruments chord into one voice, all stems
+// up). Confirmed against a real Finale-exported reference chart: kick
+// chords directly onto ride's downbeat hits, and hi-hat-foot/snare/ride
+// all chord together on the swing beat's first triplet partial - there is
+// no second voice or <backup> in the source file at all.
+// ══════════════════════════════════════════════════════════════════════
+
+// 12-slot triplet grid helper (3 partials per beat x 4 beats).
+function steps12t(hitIndices, dynamicByIndex) {
+  dynamicByIndex = dynamicByIndex || {};
+  return Array.from({ length: 12 }, (_, i) => ({
+    type: "tripletEighth", dots: 0,
+    isRest: !hitIndices.includes(i),
+    dynamic: dynamicByIndex[i] || "normal",
+  }));
+}
+
+// Ride hits the downbeat of every beat, plus the closing ("li") partial of
+// the swing beats (2 & 4) - confirmed directly from the reference file:
+// beats 1 & 3 chord with whatever else is happening on the downbeat, beat
+// 2 & 4 form a hit-rest-hit triplet group ("Ding . Ding-a-Ding").
+function buildRideTripletPattern() {
+  return steps12t([0, 3, 5, 6, 9, 11]);
+}
+
+// Hi-hat foot chords onto the FIRST triplet partial of the swing beats
+// (2 & 4) - the same position ride and snare land on there, not an
+// independent plain-quarter hit.
+function buildHihatFootTripletPattern() {
+  return steps12t([3, 9]);
+}
+
+// Kick defaults to chording with ride's downbeats (1 & 3) but can be
+// opened up to any of the 12 triplet slots via density + eligibility -
+// confirmed from the reference file that kick sometimes also chords onto
+// the swing beat's first triplet partial alongside hihat-foot/snare/ride.
+function generateSwingKickPattern(densityPercent, eligiblePositions) {
+  const hitIndices = [];
+  for (let slot = 0; slot < 12; slot++) {
+    if (eligiblePositions.includes(slot) && Math.random() * 100 < densityPercent) {
+      hitIndices.push(slot);
+    }
+  }
+  return steps12t(hitIndices);
+}
+
+// Snare chords onto ride's own hits, same as before - just re-expressed as
+// indices on the unified 12-slot grid instead of ride's old separate
+// 8-slot structure. Only the swing-beat positions (never the plain
+// downbeats 0/6) are typically eligible, matching the reference.
+const SNARE_COMPING_POSITION_MAP = { beat1: 0, "2a": 3, "2la": 4, "2c": 5, beat3: 6, "4a": 9, "4la": 10, "4c": 11 };
+
+function generateSnareCompingPattern(eligibleKeys, densityPercent) {
+  const eligibleIndices = eligibleKeys.map((k) => SNARE_COMPING_POSITION_MAP[k]).filter((i) => i !== undefined);
+  const hitIndices = [];
+  for (let slot = 0; slot < 12; slot++) {
+    if (eligibleIndices.includes(slot) && Math.random() * 100 < densityPercent) {
+      hitIndices.push(slot);
+    }
+  }
+  return steps12t(hitIndices);
+}
+
+// Merges kick, hi-hat-foot, ride, and snare into ONE unified voice on the
+// shared 12-slot grid - every slot is exactly one triplet-eighth, chorded
+// wherever multiple instruments coincide, with no gap-based stretching
+// (each hit keeps its own precise, individually-flagged duration, which is
+// what makes correct beaming/bracketing possible regardless of how sparse
+// or scattered any individual instrument's hits are).
+function computeSwingCompositeEvents(voicePatterns) {
+  const events = [];
+  let cursor = 0;
+  const ticks = durationTicks("tripletEighth", 0);
+  for (let i = 0; i < 12; i++) {
+    const instruments = [];
+    for (const [instrument, pattern] of Object.entries(voicePatterns)) {
+      const note = pattern ? pattern[i] : null;
+      if (note && !note.isRest) {
+        instruments.push({ instrument, dynamic: note.dynamic || "normal", articulation: note.articulation || null });
+      }
+    }
+    events.push({
+      tick: cursor, ticks,
+      instruments: instruments.length > 0 ? instruments : null,
+      restDisplayStep: "B", restDisplayOctave: 4,
+    });
+    cursor += ticks;
+  }
+  return { events: mergeIsolatedDownbeats(events), measureTicks: cursor };
+}
+
+// If a beat has activity ONLY on its downbeat partial - nothing on "la" or
+// "li" - collapse those 3 triplet-eighth slots back into one clean quarter
+// note, instead of a flagged/tripleted eighth followed by two rests. Real
+// triplet notation only appears where it's actually needed (i.e. something
+// else is happening within that beat).
+function mergeIsolatedDownbeats(events) {
+  const result = [];
+  for (let i = 0; i < events.length; i += 3) {
+    const [p0, p1, p2] = [events[i], events[i + 1], events[i + 2]];
+    const onlyDownbeatActive = p0.instruments !== null && p1.instruments === null && p2.instruments === null;
+    if (onlyDownbeatActive) {
+      result.push({
+        tick: p0.tick, ticks: p0.ticks + p1.ticks + p2.ticks,
+        instruments: p0.instruments,
+        restDisplayStep: p0.restDisplayStep, restDisplayOctave: p0.restDisplayOctave,
+      });
+    } else {
+      result.push(p0, p1, p2);
+    }
+  }
+  return result;
+}
+
+function generateSwingMeasure(activeVoices, kickTripletConfig, snareCompingConfig) {
+  const voicePatterns = {};
+  if (activeVoices.kick) voicePatterns.kick = generateSwingKickPattern(kickTripletConfig.density, kickTripletConfig.eligible);
+  if (activeVoices.hihat) voicePatterns.hihat_foot = buildHihatFootTripletPattern();
+  if (activeVoices.hihat) voicePatterns.ride = buildRideTripletPattern();
+  if (activeVoices.snare) voicePatterns.snare = generateSnareCompingPattern(snareCompingConfig.eligible, snareCompingConfig.density);
+  return voicePatterns;
+}
+
+// Single-voice measure builder - reuses the exact same emission machinery
+// as rock/pop (emitVoiceEventsXml with voiceNumber=1, stems up), no
+// <backup> element, matching the reference file's actual structure.
+function buildSwingMeasureXml(voicePatterns, opts) {
+  const measureNumber = opts.measureNumber, beats = opts.beats || 4, beatType = opts.beatType || 4;
+  const { events, measureTicks } = computeSwingCompositeEvents(voicePatterns);
+
+  let xml = '    <measure number="' + measureNumber + '">\n';
+  if (measureNumber === 1) {
+    xml += "      <attributes>\n";
+    xml += "        <divisions>" + DIVISIONS + "</divisions>\n";
+    xml += "        <clef>\n          <sign>percussion</sign>\n        </clef>\n";
+    xml += "        <staff-details>\n          <staff-lines>5</staff-lines>\n        </staff-details>\n";
+    xml += "        <time>\n          <beats>" + beats + "</beats>\n          <beat-type>" + beatType + "</beat-type>\n        </time>\n";
+    xml += "      </attributes>\n";
+  }
+
+  const ticksPerBeat = DIVISIONS * 4 / beatType;
+  xml += emitVoiceEventsXml(events, ticksPerBeat, 1, "up");
+  xml += "    </measure>\n";
+  return xml;
+}
+
+function generateStyleMeasure(styleName, grooveType, activeVoices, ghostConfig, halftime, accentConfig, hihatPattern, hihatArticulationConfig, kickSixteenthConfig) {
+  const profile = STYLE_PROFILES[styleName][grooveType];
+  const voicePatterns = {};
+  for (const [instrument, options] of Object.entries(profile)) {
+    if (!activeVoices[instrument]) continue; // voice toggled off entirely
+
+    if (instrument === "hihat") {
+      // Hi-hat ignores the style/groove-feel pool entirely - it's a direct,
+      // deterministic pick from its own dedicated selector, independent of
+      // whatever groove feel is driving the kick. `hihatPattern` is either
+      // a pattern-key string (one pattern for the whole measure) or a
+      // pre-built notes array (beat-mode randomization, already assembled
+      // per-beat by the caller).
+      let hihatNotes;
+      if (Array.isArray(hihatPattern)) {
+        hihatNotes = hihatPattern.map((n) => Object.assign({}, n));
+      } else {
+        const key = HIHAT_PATTERN_MAP[hihatPattern] || HIHAT_PATTERN_MAP.eighth;
+        hihatNotes = PATTERN_LIBRARY.hihat[key].notes.map((n) => Object.assign({}, n));
+      }
+      if (hihatArticulationConfig && hihatArticulationConfig.enabled) {
+        hihatNotes = applyHihatArticulation(hihatNotes, hihatArticulationConfig.openDensity, hihatArticulationConfig.eligibleEighths, hihatArticulationConfig.forceMode);
+      }
+      voicePatterns.hihat = hihatNotes;
+      continue;
+    }
+
+    if (instrument === "snare") {
+      if (ghostConfig && ghostConfig.enabled) {
+        // Halftime moves the fixed accent from 2 & 4 to just beat 3.
+        const accentBeats = halftime ? [3] : [2, 4];
+        voicePatterns.snare = generateGhostSnarePattern(ghostConfig.density, ghostConfig.beats, accentBeats);
+      } else if (halftime) {
+        voicePatterns.snare = PATTERN_LIBRARY.snare.snare_on_3.notes.map((n) => Object.assign({}, n));
+      } else {
+        const chosenKey = pickWeighted(options);
+        voicePatterns.snare = PATTERN_LIBRARY.snare[chosenKey].notes.map((n) => Object.assign({}, n));
+      }
+      continue;
+    }
+
+    if (instrument === "kick" && halftime) {
+      const chosenKey = pickWeighted(HALFTIME_KICK_POOL);
+      voicePatterns.kick = PATTERN_LIBRARY.kick[chosenKey].notes.map((n) => Object.assign({}, n));
+      continue;
+    }
+
+    if (instrument === "kick" && !halftime && grooveType === "mixed" && kickSixteenthConfig) {
+      // Mixed groove feel: same density+eligibility mechanism as sixteenth,
+      // but beat 1 gets its own dedicated (much higher) probability so the
+      // groove's anchor lands reliably instead of only as often as any
+      // other syncopated slot happens to roll.
+      voicePatterns.kick = generateMixedKickPattern(kickSixteenthConfig.density, kickSixteenthConfig.eligible, kickSixteenthConfig.beat1Percent);
+      continue;
+    }
+
+    if (instrument === "kick" && !halftime && grooveType === "sixteenth" && kickSixteenthConfig) {
+      voicePatterns.kick = generateSixteenthKickPattern(kickSixteenthConfig.density, kickSixteenthConfig.eligible);
+      continue;
+    }
+
+    const chosenKey = pickWeighted(options);
+    const patternDef = PATTERN_LIBRARY[instrument][chosenKey];
+    voicePatterns[instrument] = patternDef.notes.map((n) => Object.assign({}, n));
+  }
+
+  // Accents are snare-backbeat-only by default - strip any accent dynamic
+  // that came along with a kick or hihat pattern (e.g. the hihat's
+  // downbeat-accent patterns), regardless of which pool it was drawn from.
+  for (const instrument of Object.keys(voicePatterns)) {
+    if (instrument === "snare") continue;
+    voicePatterns[instrument] = voicePatterns[instrument].map((n) =>
+      n.dynamic === "accent" ? Object.assign({}, n, { dynamic: "normal" }) : n
+    );
+  }
+
+  // Downbeat/upbeat accent toggles apply across every active instrument -
+  // layered ON TOP of the existing backbeat rule (which already accents the
+  // snare via a distinct "accent" dynamic that this pass won't touch, since
+  // it only upgrades "normal"-dynamic notes, never ghost or already-accented
+  // ones).
+  if (accentConfig && (accentConfig.downbeat || accentConfig.upbeat)) {
+    for (const instrument of Object.keys(voicePatterns)) {
+      voicePatterns[instrument] = applyBeatAccents(voicePatterns[instrument], accentConfig.downbeat, accentConfig.upbeat);
+    }
+  }
+
+  return voicePatterns;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// UI STATE + WIRING
+// ══════════════════════════════════════════════════════════════════════
+const state = {
+  style: "rock",
+  grooveType: "eighth",
+  hihatPatterns: ["eighth"],
+  hihatRandomizeMode: "measure",
+  colorCodeVoices: false,
+  hihatArticulation: false,
+  hihatOpenDensity: 20,
+  hihatOpenEighths: [0, 1, 2, 3, 4, 5, 6, 7],
+  hihatOpenForceMode: false,
+  kickSixteenthDensity: 35,
+  kickSixteenthEligible: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  kickMixedBeat1Percent: 85,
+  kickTripletDensity: 50,
+  kickTripletEligible: [0, 2, 3, 5, 6, 8, 9, 11], // 4 downbeats + 4 "li" partials (the swung offbeat - same partial snare/ride already emphasize). "la" stays off by default (the less commonly used, typically-rested partial).
+  snareCompingDensity: 50,
+  snareCompingEligible: ["beat1", "2a", "2c", "4a", "4c"],
+  ghostNotes: false,
+  halftime: false,
+  accentDownbeat: false,
+  accentUpbeat: false,
+  ghostDensity: 40,
+  ghostBeats: [1, 3],
+  measures: 4,
+  activeVoices: { hihat: true, snare: true, kick: true },
+  zoom: 100,
+  tempo: 100,
+  loop: true,
+  metronome: false,
+  countIn: false,
+  isPlaying: false,
+};
+
+let osmd = null;
+let currentXml = "";
+let currentMeasuresEvents = []; // array of {events, measureTicks} per measure, for playback
+let currentSwingMeasuresEvents = []; // array of {events1, events2, measureTicks} per measure, for swing playback
+
+function initOSMD() {
+  osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmd-container", {
+    autoResize: true, drawTitle: false, drawPartNames: false,
+    setWantedStemDirectionByXml: true,
+  });
+  // OSMD auto-collapses percussion to a single line when fewer than
+  // PercussionOneLineCutoff unique note positions are active (default 3) -
+  // regardless of <staff-lines> in the XML. Disabling it (0) forces 5 lines
+  // always, which is what we want since voices get toggled on/off.
+  osmd.EngravingRules.PercussionOneLineCutoff = 0;
+  osmd.EngravingRules.PercussionForceVoicesOneLineCutoff = 0;
+
+  // Force all beams to render as flat horizontal lines instead of sloping
+  // to follow notehead position. Since hi-hat is the highest-positioned
+  // voice and provides the continuous grid in most patterns (so it's in
+  // nearly every beam group), the flat height naturally lands close to
+  // where hi-hat's own eighth-note beams would normally sit.
+  osmd.EngravingRules.FlatBeams = true;
+}
+
+// OSMD wraps measures into new staff systems (rows) automatically based on
+// how many fit in the container's current width - that part is built in.
+// What ISN'T automatic: OSMD's own autoResize hook only reliably fires on
+// actual window resize events. Our sidebar toggling changes the available
+// width via a CSS transform/transition, with no window resize event at
+// all - so without this, the staff would silently keep whatever layout it
+// had before the sidebar opened/closed until the browser window itself was
+// resized. This re-triggers a real layout recalculation (not just a visual
+// scale) any time the container's actual width might have changed.
+function reflowStaffLayout() {
+  if (!osmd || !currentXml) return;
+  osmd.render();
+}
+
+function generateAndRender() {
+  const statusEl = document.getElementById("status");
+  statusEl.textContent = "Generating\u2026";
+  stopPlayback();
+
+  setDivisionsForStyle(state.style);
+  COLOR_CODE_VOICES = state.colorCodeVoices;
+
+  const measuresXml = [];
+  currentMeasuresEvents = [];
+
+  if (state.style === "swing") {
+    const kickTripletConfig = { density: state.kickTripletDensity, eligible: state.kickTripletEligible };
+    const snareCompingConfig = { density: state.snareCompingDensity, eligible: state.snareCompingEligible };
+    currentSwingMeasuresEvents = [];
+    for (let m = 1; m <= state.measures; m++) {
+      const voicePatterns = generateSwingMeasure(state.activeVoices, kickTripletConfig, snareCompingConfig);
+      measuresXml.push(buildSwingMeasureXml(voicePatterns, { measureNumber: m, beats: 4, beatType: 4 }));
+      const { events, measureTicks } = computeSwingCompositeEvents(voicePatterns);
+      currentSwingMeasuresEvents.push({ events, measureTicks });
+    }
+  } else {
+    // Falls back to "eighth" if nothing is selected, so an empty selection
+    // can't silently break generation.
+    const availableHihatPatterns = state.hihatPatterns.length > 0 ? state.hihatPatterns : ["eighth"];
+    for (let m = 1; m <= state.measures; m++) {
+      const ghostConfig = { enabled: state.ghostNotes, density: state.ghostDensity, beats: state.ghostBeats };
+      const accentConfig = { downbeat: state.accentDownbeat, upbeat: state.accentUpbeat };
+      const hihatArticulationConfig = { enabled: state.hihatArticulation, openDensity: state.hihatOpenDensity, eligibleEighths: state.hihatOpenEighths, forceMode: state.hihatOpenForceMode };
+      const kickSixteenthConfig = { density: state.kickSixteenthDensity, eligible: state.kickSixteenthEligible, beat1Percent: state.kickMixedBeat1Percent };
+      // "measure" mode: fresh random pick per measure (same pattern for all
+      // 4 beats). "beat" mode: fresh random pick independently for EACH of
+      // the 4 beats, concatenated into one measure - funk-style hi-hat that
+      // shifts feel within a single bar rather than only bar-to-bar.
+      const chosenHihatPattern = state.hihatRandomizeMode === "beat"
+        ? buildBeatRandomizedHihatNotes(availableHihatPatterns)
+        : availableHihatPatterns[Math.floor(Math.random() * availableHihatPatterns.length)];
+      const voicePatterns = generateStyleMeasure(state.style, state.grooveType, state.activeVoices, ghostConfig, state.halftime, accentConfig, chosenHihatPattern, hihatArticulationConfig, kickSixteenthConfig);
+      measuresXml.push(buildCompositeMeasureXml(voicePatterns, { measureNumber: m, beats: 4, beatType: 4 }));
+      currentMeasuresEvents.push(computeCompositeEvents(voicePatterns, 4, 4));
+    }
+  }
+
+  currentXml = buildScoreDocument(measuresXml, { partName: "Drum Set (" + state.style + ")" });
+
+  osmd.load(currentXml).then(() => {
+    osmd.render();
+    statusEl.textContent = "Generated " + state.measures + " measures \u00b7 " + state.style;
+  }).catch((err) => {
+    statusEl.textContent = "Render error: " + err.message;
+    console.error(err);
+  });
+}
+
+
+// Sidebar accordion
+document.querySelectorAll(".acc-trigger").forEach((trigger) => {
+  trigger.addEventListener("click", () => {
+    const targetId = trigger.dataset.target;
+    const body = document.getElementById(targetId);
+    const isOpen = trigger.classList.contains("open");
+    trigger.classList.toggle("open", !isOpen);
+    body.classList.toggle("open", !isOpen);
+  });
+});
+
+// Style toggle
+document.querySelectorAll("#styleGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#styleGroup .tog").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.style = btn.dataset.style;
+    // Ride + hihat-foot are meant to always play in Swing, and Voices
+    // (where hihat would otherwise be toggled) is hidden there - so force
+    // it back on in case it was left off from a prior Rock/Pop session,
+    // rather than leaving no way to fix a silently-broken generation.
+    if (state.style === "swing" && !state.activeVoices.hihat) {
+      state.activeVoices.hihat = true;
+      const hihatCheckbox = document.querySelector('[data-voice="hihat"]');
+      if (hihatCheckbox) hihatCheckbox.checked = true;
+    }
+    updateSectionVisibilityForStyle();
+  });
+});
+
+// Swing uses a completely different rhythmic architecture (triplet grid,
+// 2-voice ride/kick split, snare comping onto ride hits) than Rock/Pop's
+// straight-grid composite system - most sidebar sections only make sense
+// for one or the other, so we show/hide whole sections rather than trying
+// to make one set of controls mean two different things.
+function updateSectionVisibilityForStyle() {
+  const isSwing = state.style === "swing";
+  const rockPopOnlyIds = ["rockPopStyleControls", "grooveFeelKickSection", "hihatPatternSection", "hihatOpenClosedSection", "accentsSection", "voicesSection"];
+  rockPopOnlyIds.forEach((id) => {
+    document.getElementById(id).style.display = isSwing ? "none" : "";
+  });
+  // Explicitly "block" here, not "" - clearing the inline style would just
+  // fall back to the .style-swing-only CSS class's own display:none rule
+  // (the class itself is never removed from the element), leaving it
+  // hidden even when we're trying to show it.
+  document.querySelectorAll(".style-swing-only").forEach((el) => {
+    el.style.display = isSwing ? "block" : "none";
+  });
+}
+updateSectionVisibilityForStyle();
+
+// Groove type toggle (8th / 16th / mixed) - kick only now
+document.querySelectorAll("#grooveTypeGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#grooveTypeGroup .tog").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.grooveType = btn.dataset.groove;
+    updateKickSixteenthControlsEnabled();
+  });
+});
+
+// Kick 16th density/eligibility controls only matter for 16th or Mixed groove
+// feel - gray them out (and stop them intercepting clicks) when 8th is
+// selected, since they'd otherwise look "live" but do nothing.
+function updateKickSixteenthControlsEnabled() {
+  const sixteenthWrapper = document.getElementById("kickSixteenthControlsWrapper");
+  sixteenthWrapper.classList.toggle("controls-disabled", state.grooveType === "eighth");
+}
+updateKickSixteenthControlsEnabled();
+
+// Hi-hat Pattern toggle (quarter / eighth / sixteenth / combo1 / combo2) - independent of everything else
+document.querySelectorAll("#hihatPatternGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const pattern = btn.dataset.hihatPattern;
+    btn.classList.toggle("on");
+    if (btn.classList.contains("on")) {
+      if (!state.hihatPatterns.includes(pattern)) state.hihatPatterns.push(pattern);
+    } else {
+      state.hihatPatterns = state.hihatPatterns.filter((p) => p !== pattern);
+    }
+    syncHihatSelectAllButton();
+  });
+});
+
+// Select All is a smart toggle: if everything is already selected, clicking
+// it clears the selection back to empty; otherwise it selects everything.
+function syncHihatSelectAllButton() {
+  const allBtns = document.querySelectorAll("#hihatPatternGroup .tog");
+  const allSelected = Array.from(allBtns).every((b) => b.classList.contains("on"));
+  document.getElementById("btnHihatPatternSelectAll").classList.toggle("on", allSelected);
+}
+document.getElementById("btnHihatPatternSelectAll").addEventListener("click", () => {
+  const allBtns = document.querySelectorAll("#hihatPatternGroup .tog");
+  const allSelected = Array.from(allBtns).every((b) => b.classList.contains("on"));
+  allBtns.forEach((b) => b.classList.toggle("on", !allSelected));
+  state.hihatPatterns = allSelected ? [] : Array.from(allBtns).map((b) => b.dataset.hihatPattern);
+  syncHihatSelectAllButton();
+});
+syncHihatSelectAllButton();
+
+// Hi-hat randomize-by mode (Measure vs Beat) - single-select
+document.querySelectorAll("#hihatRandomizeModeGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#hihatRandomizeModeGroup .tog").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.hihatRandomizeMode = btn.dataset.randomizeMode;
+  });
+});
+
+// Hi-hat open/closed articulation
+document.getElementById("hihatArticulationToggle").addEventListener("change", (e) => {
+  state.hihatArticulation = e.target.checked;
+});
+document.getElementById("hihatOpenDensitySlider").addEventListener("input", (e) => {
+  state.hihatOpenDensity = parseInt(e.target.value, 10);
+  document.getElementById("hihatOpenDensityVal").textContent = state.hihatOpenDensity + "%";
+});
+
+// Hi-hat open force mode
+document.getElementById("hihatOpenForceToggle").addEventListener("change", (e) => {
+  state.hihatOpenForceMode = e.target.checked;
+});
+
+// Hi-hat open eighth-note position eligibility (multi-select: 0-7)
+document.querySelectorAll("#hihatOpenEighthsGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const eighth = parseInt(btn.dataset.eighth, 10);
+    btn.classList.toggle("on");
+    if (btn.classList.contains("on")) {
+      if (!state.hihatOpenEighths.includes(eighth)) state.hihatOpenEighths.push(eighth);
+    } else {
+      state.hihatOpenEighths = state.hihatOpenEighths.filter((e) => e !== eighth);
+    }
+  });
+});
+
+// Kick position quick presets - one click sets the shared eligible-
+// positions grid to a curated subset, so someone wanting a "quarters only"
+// feel (or eighths only, or everything) doesn't have to manually manage
+// 16 individual checkboxes to get there.
+const KICK_POSITION_PRESETS = {
+  quarters: [0, 4, 8, 12],
+  eighths: [0, 2, 4, 6, 8, 10, 12, 14],
+  all16: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+};
+document.querySelectorAll("#kickPositionPresetGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const preset = KICK_POSITION_PRESETS[btn.dataset.preset];
+    if (!preset) return;
+    state.kickSixteenthEligible = preset.slice();
+    document.querySelectorAll("#kickSixteenthGroup .tog").forEach((b) => {
+      b.classList.toggle("on", preset.includes(parseInt(b.dataset.sixteenth, 10)));
+    });
+    syncKickPositionSelectAllButton();
+  });
+});
+
+// Kick sixteenth density slider
+document.getElementById("kickSixteenthDensitySlider").addEventListener("input", (e) => {
+  state.kickSixteenthDensity = parseInt(e.target.value, 10);
+  document.getElementById("kickSixteenthDensityVal").textContent = state.kickSixteenthDensity + "%";
+});
+
+// Kick sixteenth position eligibility (multi-select: 0-15)
+document.querySelectorAll("#kickSixteenthGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const pos = parseInt(btn.dataset.sixteenth, 10);
+    btn.classList.toggle("on");
+    if (btn.classList.contains("on")) {
+      if (!state.kickSixteenthEligible.includes(pos)) state.kickSixteenthEligible.push(pos);
+    } else {
+      state.kickSixteenthEligible = state.kickSixteenthEligible.filter((p) => p !== pos);
+    }
+    syncKickPositionSelectAllButton();
+  });
+});
+
+// Select All is a smart toggle: if everything is already selected, clicking
+// it clears the selection back to empty; otherwise it selects everything.
+function syncKickPositionSelectAllButton() {
+  const allBtns = document.querySelectorAll("#kickSixteenthGroup .tog");
+  const allSelected = Array.from(allBtns).every((b) => b.classList.contains("on"));
+  document.getElementById("btnKickPositionSelectAll").classList.toggle("on", allSelected);
+}
+document.getElementById("btnKickPositionSelectAll").addEventListener("click", () => {
+  const allBtns = document.querySelectorAll("#kickSixteenthGroup .tog");
+  const allSelected = Array.from(allBtns).every((b) => b.classList.contains("on"));
+  allBtns.forEach((b) => b.classList.toggle("on", !allSelected));
+  state.kickSixteenthEligible = allSelected ? [] : Array.from(allBtns).map((b) => parseInt(b.dataset.sixteenth, 10));
+  syncKickPositionSelectAllButton();
+});
+
+// Kick triplet density/eligibility (Swing style)
+document.getElementById("kickTripletDensitySlider").addEventListener("input", (e) => {
+  state.kickTripletDensity = parseInt(e.target.value, 10);
+  document.getElementById("kickTripletDensityVal").textContent = state.kickTripletDensity + "%";
+});
+document.querySelectorAll("#kickTripletGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const pos = parseInt(btn.dataset.triplet, 10);
+    btn.classList.toggle("on");
+    if (btn.classList.contains("on")) {
+      if (!state.kickTripletEligible.includes(pos)) state.kickTripletEligible.push(pos);
+    } else {
+      state.kickTripletEligible = state.kickTripletEligible.filter((p) => p !== pos);
+    }
+  });
+});
+
+// Snare comping density/eligibility (Swing style)
+document.getElementById("snareCompingDensitySlider").addEventListener("input", (e) => {
+  state.snareCompingDensity = parseInt(e.target.value, 10);
+  document.getElementById("snareCompingDensityVal").textContent = state.snareCompingDensity + "%";
+});
+document.querySelectorAll("#snareCompingGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const key = btn.dataset.ridehit;
+    btn.classList.toggle("on");
+    if (btn.classList.contains("on")) {
+      if (!state.snareCompingEligible.includes(key)) state.snareCompingEligible.push(key);
+    } else {
+      state.snareCompingEligible = state.snareCompingEligible.filter((k) => k !== key);
+    }
+  });
+});
+
+// Halftime feel toggle
+document.getElementById("halftimeToggle").addEventListener("change", (e) => {
+  state.halftime = e.target.checked;
+});
+
+// Kick accent toggles
+document.getElementById("accentDownbeatToggle").addEventListener("change", (e) => {
+  state.accentDownbeat = e.target.checked;
+});
+document.getElementById("accentUpbeatToggle").addEventListener("change", (e) => {
+  state.accentUpbeat = e.target.checked;
+});
+
+// Ghost notes toggle
+document.getElementById("ghostNotesToggle").addEventListener("change", (e) => {
+  state.ghostNotes = e.target.checked;
+});
+
+// Ghost density slider
+document.getElementById("ghostDensitySlider").addEventListener("input", (e) => {
+  state.ghostDensity = parseInt(e.target.value, 10);
+  document.getElementById("ghostDensityVal").textContent = state.ghostDensity + "%";
+});
+
+// Ghost note beat-eligibility toggles (multi-select: 1-4)
+document.querySelectorAll("#ghostBeatsGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const beat = parseInt(btn.dataset.beat, 10);
+    btn.classList.toggle("on");
+    if (btn.classList.contains("on")) {
+      if (!state.ghostBeats.includes(beat)) state.ghostBeats.push(beat);
+    } else {
+      state.ghostBeats = state.ghostBeats.filter((b) => b !== beat);
+    }
+  });
+});
+
+// Measures select
+document.getElementById("measureCount").addEventListener("change", (e) => {
+  state.measures = parseInt(e.target.value, 10);
+});
+
+// Color-code voices toggle
+document.getElementById("colorCodeToggle").addEventListener("change", (e) => {
+  state.colorCodeVoices = e.target.checked;
+});
+
+// Voice toggles
+document.querySelectorAll('[data-voice]').forEach((checkbox) => {
+  checkbox.addEventListener("change", (e) => {
+    state.activeVoices[e.target.dataset.voice] = e.target.checked;
+    syncPracticeFocusFromVoices();
+  });
+});
+
+// Practice Focus (Swing) - a friendly preset over the same kick/snare
+// toggles used elsewhere, so "I want to drill kick vocabulary" doesn't
+// require remembering "that means turn snare off."
+document.querySelectorAll("#practiceFocusGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#practiceFocusGroup .tog").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    const focus = btn.dataset.focus;
+    state.activeVoices.kick = focus === "kick" || focus === "both";
+    state.activeVoices.snare = focus === "snare" || focus === "both";
+    document.querySelectorAll("[data-voice]").forEach((cb) => {
+      if (cb.dataset.voice === "kick" || cb.dataset.voice === "snare") {
+        cb.checked = state.activeVoices[cb.dataset.voice];
+      }
+    });
+  });
+});
+
+// If someone changes kick/snare directly via the Voices section, keep the
+// Practice Focus preset buttons in sync rather than looking stale.
+function syncPracticeFocusFromVoices() {
+  const group = document.getElementById("practiceFocusGroup");
+  if (!group) return;
+  const kick = state.activeVoices.kick, snare = state.activeVoices.snare;
+  let focus = "both";
+  if (kick && !snare) focus = "kick";
+  else if (!kick && snare) focus = "snare";
+  else if (!kick && !snare) focus = null; // neither preset matches - leave buttons as-is
+  if (focus) {
+    document.querySelectorAll("#practiceFocusGroup .tog").forEach((b) => b.classList.toggle("on", b.dataset.focus === focus));
+  }
+}
+
+// Reading Level presets - sets kick/snare density + eligible positions
+// together, tuned for how much rhythmic complexity a student can handle at
+// each stage. The manual sliders/checkboxes underneath stay fully usable
+// for fine-tuning after picking a starting point.
+const READING_LEVEL_PRESETS = {
+  beginner: {
+    kickDensity: 25, kickEligible: [0, 6],
+    snareDensity: 25, snareEligible: ["2a", "4a"],
+  },
+  intermediate: {
+    kickDensity: 45, kickEligible: [0, 3, 6, 9],
+    snareDensity: 45, snareEligible: ["beat1", "2a", "2c", "beat3", "4a", "4c"],
+  },
+  advanced: {
+    kickDensity: 50, kickEligible: [0, 2, 3, 5, 6, 8, 9, 11],
+    snareDensity: 50, snareEligible: ["beat1", "2a", "2c", "4a", "4c"],
+  },
+};
+
+function applyReadingLevel(level) {
+  const preset = READING_LEVEL_PRESETS[level];
+  if (!preset) return;
+
+  state.kickTripletDensity = preset.kickDensity;
+  state.kickTripletEligible = preset.kickEligible.slice();
+  state.snareCompingDensity = preset.snareDensity;
+  state.snareCompingEligible = preset.snareEligible.slice();
+
+  document.getElementById("kickTripletDensitySlider").value = preset.kickDensity;
+  document.getElementById("kickTripletDensityVal").textContent = preset.kickDensity + "%";
+  document.querySelectorAll("#kickTripletGroup .tog").forEach((b) => {
+    b.classList.toggle("on", preset.kickEligible.includes(parseInt(b.dataset.triplet, 10)));
+  });
+
+  document.getElementById("snareCompingDensitySlider").value = preset.snareDensity;
+  document.getElementById("snareCompingDensityVal").textContent = preset.snareDensity + "%";
+  document.querySelectorAll("#snareCompingGroup .tog").forEach((b) => {
+    b.classList.toggle("on", preset.snareEligible.includes(b.dataset.ridehit));
+  });
+}
+
+document.querySelectorAll("#readingLevelGroup .tog").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#readingLevelGroup .tog").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    applyReadingLevel(btn.dataset.level);
+  });
+});
+
+// Sidebar collapse (+ overlay backdrop on tablet/mobile, where the
+// sidebar becomes a drawer rather than sitting permanently beside the
+// content - collapsed by default there so it doesn't cover the whole
+// screen on first load).
+const sidebarEl = document.getElementById("sidebar");
+const sidebarBackdropEl = document.getElementById("sidebarBackdrop");
+
+function setSidebarOpen(open) {
+  sidebarEl.classList.toggle("collapsed", !open);
+  sidebarBackdropEl.classList.toggle("visible", open && window.innerWidth < 1024);
+  // Wait for the sidebar's own CSS transition (250ms) to actually finish
+  // before re-measuring - triggering immediately would recalculate against
+  // the width mid-animation, not the final settled width.
+  setTimeout(reflowStaffLayout, 280);
+}
+
+document.getElementById("btnSettings").addEventListener("click", () => {
+  setSidebarOpen(sidebarEl.classList.contains("collapsed"));
+});
+sidebarBackdropEl.addEventListener("click", () => setSidebarOpen(false));
+document.getElementById("btnCloseSidebar").addEventListener("click", () => setSidebarOpen(false));
+
+if (window.innerWidth < 1024) setSidebarOpen(false);
+
+// Backup to OSMD's own autoResize - debounced so rapid resize events (like
+// dragging a window edge) don't trigger a full re-layout on every pixel,
+// just once things settle.
+let resizeReflowTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeReflowTimer);
+  resizeReflowTimer = setTimeout(reflowStaffLayout, 200);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// AUDIO ENGINE (Tone.js) - synthesized drum sounds, no sample files needed
+// ══════════════════════════════════════════════════════════════════════
+let synths = null;
+let mixerNodes = null; // { kick, snare, hihat, master } Tone.Volume nodes
+let metronomeSynth = null;
+
+function faderToDb(v) {
+  return v <= 0 ? -Infinity : (v / 100 - 1) * 40; // 0-100 -> roughly -40dB..0dB
+}
+
+function initSynths() {
+  if (synths) return;
+
+  mixerNodes = {
+    master: new Tone.Volume(faderToDb(document.getElementById("faderMaster").value)).toDestination(),
+  };
+  mixerNodes.kick = new Tone.Volume(faderToDb(document.getElementById("faderKick").value)).connect(mixerNodes.master);
+  mixerNodes.snare = new Tone.Volume(faderToDb(document.getElementById("faderSnare").value)).connect(mixerNodes.master);
+  mixerNodes.hihat = new Tone.Volume(faderToDb(document.getElementById("faderHihat").value)).connect(mixerNodes.master);
+  mixerNodes.click = new Tone.Volume(faderToDb(document.getElementById("faderClick").value)).connect(mixerNodes.master);
+
+  synths = {
+    kick: new Tone.MembraneSynth({
+      pitchDecay: 0.05, octaves: 4,
+      envelope: { attack: 0.001, decay: 0.3, sustain: 0 },
+    }).connect(mixerNodes.kick),
+    floor_tom: new Tone.MembraneSynth({
+      pitchDecay: 0.04, octaves: 3,
+      envelope: { attack: 0.001, decay: 0.25, sustain: 0 },
+    }).connect(mixerNodes.snare),
+    rack_tom_2: new Tone.MembraneSynth({
+      pitchDecay: 0.035, octaves: 2.5,
+      envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
+    }).connect(mixerNodes.snare),
+    rack_tom_1: new Tone.MembraneSynth({
+      pitchDecay: 0.03, octaves: 2,
+      envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
+    }).connect(mixerNodes.snare),
+    snare: new Tone.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.18, sustain: 0 },
+    }).connect(mixerNodes.snare),
+    // Hi-hat/foot use a cheap filtered-noise voice rather than MetalSynth -
+    // this is the most frequently-triggered voice (every 16th note in some
+    // patterns), and MetalSynth's FM synthesis is CPU-heavy enough at that
+    // trigger rate to cause audio-thread overload, which is what was
+    // actually producing the "uneven, not metronomic" feel.
+    hihat: (() => {
+      const filter = new Tone.Filter(9000, "highpass").connect(mixerNodes.hihat);
+      return new Tone.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.05, sustain: 0 },
+      }).connect(filter);
+    })(),
+    // Open hi-hat needs to actually ring/sustain (unlike the tight, damped
+    // closed sound above) - a real open hi-hat is meant to sizzle until the
+    // NEXT hi-hat hit chokes it off, not just decay on its own fixed timer.
+    // Separate synth + sustain/release envelope; choking is handled in
+    // triggerInstrument below by explicitly releasing this synth early.
+    hihat_open: (() => {
+      const filter = new Tone.Filter(8000, "highpass").connect(mixerNodes.hihat);
+      return new Tone.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.05, sustain: 0.3, release: 0.35 },
+      }).connect(filter);
+    })(),
+    hihat_foot: (() => {
+      const filter = new Tone.Filter(7000, "highpass").connect(mixerNodes.hihat);
+      return new Tone.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.03, sustain: 0 },
+      }).connect(filter);
+    })(),
+    // Ride/crash trigger far less often, so MetalSynth's cost is fine here.
+    // Ride is genuinely two layers, not one MetalSynth: a pitched "ping"
+    // (the stick's attack transient - higher harmonicity/tighter than crash
+    // so it reads as more bell-like/defined) plus a filtered-noise "wash"
+    // underneath (the shimmer/sizzle a real ride carries). Both trigger
+    // together in triggerInstrument.
+    ride_ping: new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 0.4, release: 0.2 },
+      harmonicity: 8.2, modulationIndex: 12, resonance: 4000, octaves: 0.8,
+    }).connect(mixerNodes.hihat),
+    ride_wash: (() => {
+      const filter = new Tone.Filter(6500, "highpass").connect(mixerNodes.hihat);
+      return new Tone.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.6, sustain: 0.05, release: 0.3 },
+      }).connect(filter);
+    })(),
+    crash: new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 1.0, release: 0.3 },
+      harmonicity: 4, modulationIndex: 16, resonance: 2500, octaves: 1.5,
+    }).connect(mixerNodes.hihat),
+  };
+  synths._pitch = {
+    kick: "C1", floor_tom: "E1", rack_tom_2: "A1", rack_tom_1: "D2",
+  };
+
+  // Metronome click - a plain short synth tone, routed straight to master
+  // rather than through any drum-voice mixer channel, since it's a utility
+  // click rather than a kit voice.
+  metronomeSynth = new Tone.Synth({
+    oscillator: { type: "square" },
+    envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.01 },
+  }).connect(mixerNodes.click);
+}
+
+function triggerMetronomeClick(time, isDownbeat) {
+  if (!metronomeSynth) return;
+  metronomeSynth.triggerAttackRelease(isDownbeat ? "C6" : "G5", "32n", time, isDownbeat ? 1.0 : 0.7);
+}
+
+let hihatOpenRinging = false;
+
+function triggerInstrument(key, time, dynamic, articulation) {
+  if (key === "hihat") {
+    // Any new hi-hat hit - open or closed - chokes a still-ringing open
+    // note first. This is what makes open vs. closed actually audible as
+    // distinct: closed is tight/damped, open rings until something chokes
+    // it (exactly like a real pedal).
+    if (hihatOpenRinging) {
+      synths.hihat_open.triggerRelease(time);
+      hihatOpenRinging = false;
+    }
+    const velocity = dynamic === "ghost" ? 0.35 : dynamic === "accent" ? 1.0 : 0.85;
+    if (articulation === "open") {
+      synths.hihat_open.triggerAttack(time, velocity);
+      hihatOpenRinging = true;
+    } else {
+      synths.hihat.triggerAttackRelease("16n", time, velocity);
+    }
+    return;
+  }
+
+  if (key === "ride") {
+    const velocity = dynamic === "ghost" ? 0.35 : dynamic === "accent" ? 1.0 : 0.85;
+    synths.ride_ping.triggerAttackRelease("8n", time, velocity);
+    synths.ride_wash.triggerAttackRelease("8n", time, velocity * 0.6);
+    return;
+  }
+
+  const synth = synths[key];
+  if (!synth) return;
+  const velocity = dynamic === "ghost" ? 0.35 : dynamic === "accent" ? 1.0 : 0.85;
+  if (synth instanceof Tone.MembraneSynth) {
+    synth.triggerAttackRelease(synths._pitch[key], "16n", time, velocity);
+  } else {
+    // NoiseSynth or MetalSynth share the same trigger signature here.
+    synth.triggerAttackRelease("16n", time, velocity);
+  }
+}
+
+// ── Global step sequence ────────────────────────────────────────────────
+// Flattens all generated measures onto a single 16th-note-resolution grid
+// (1 tick == 1 sixteenth note, since DIVISIONS=4). Tone.Sequence steps
+// through this at a fixed, sample-accurate rate - far steadier than
+// manually computing an absolute-seconds Transport.schedule() call per
+// note, which is what caused the drift/unevenness before.
+function buildGlobalSteps() {
+  const totalSteps = currentMeasuresEvents.reduce((sum, m) => sum + m.measureTicks, 0);
+  const steps = new Array(totalSteps).fill(null);
+  let offset = 0;
+  for (const { events, measureTicks } of currentMeasuresEvents) {
+    for (const ev of events) {
+      if (ev.instruments !== null) steps[offset + ev.tick] = ev.instruments;
+    }
+    offset += measureTicks;
+  }
+  return steps;
+}
+
+// Swing plays back at triplet-eighth resolution (12 steps/measure, 3/beat)
+// rather than straight-16th (16 steps/measure, 4/beat). Both voices get
+// merged into one combined step array here, since playback doesn't care
+// about notation voice - only which instruments actually sound at a given
+// moment. 1 step = 1 triplet-eighth = 4 ticks (TRIPLET_DIVISIONS=12).
+function buildSwingGlobalSteps() {
+  const totalSteps = currentSwingMeasuresEvents.reduce((sum, m) => sum + m.measureTicks / 4, 0);
+  const steps = new Array(totalSteps).fill(null);
+  let offset = 0;
+  for (const { events, measureTicks } of currentSwingMeasuresEvents) {
+    for (const ev of events) {
+      if (ev.instruments !== null) {
+        const stepIdx = offset + Math.round(ev.tick / 4);
+        if (!steps[stepIdx]) steps[stepIdx] = [];
+        steps[stepIdx].push(...ev.instruments);
+      }
+    }
+    offset += measureTicks / 4;
+  }
+  return steps;
+}
+
+let repeatId = null;
+let currentSteps = [];
+let stepIndex = 0;
+let countInStepsRemaining = 0;
+
+function stopPlayback() {
+  if (repeatId !== null) {
+    Tone.Transport.clear(repeatId);
+    repeatId = null;
+  }
+  if (hihatOpenRinging && synths) {
+    synths.hihat_open.triggerRelease();
+    hihatOpenRinging = false;
+  }
+  Tone.Transport.stop();
+  Tone.Transport.position = 0;
+  stepIndex = 0;
+  countInStepsRemaining = 0;
+  state.isPlaying = false;
+  document.getElementById("status").textContent = "Stopped.";
+}
+
+async function startPlayback() {
+  const isSwing = state.style === "swing";
+  if (isSwing ? !currentSwingMeasuresEvents.length : !currentMeasuresEvents.length) return;
+  await Tone.start();
+  initSynths();
+  stopPlayback(); // clear any previous schedule first
+
+  Tone.Transport.bpm.value = state.tempo;
+  currentSteps = isSwing ? buildSwingGlobalSteps() : buildGlobalSteps();
+  stepIndex = 0;
+
+  // Swing plays back at triplet-eighth resolution (3 steps/beat, 12/measure)
+  // via Tone's native "8t" (triplet eighth) time notation, instead of
+  // straight-16th ("16n", 4 steps/beat, 16/measure).
+  const stepsPerBeat = isSwing ? 3 : 4;
+  const stepsPerMeasure = isSwing ? 12 : 16;
+  const transportInterval = isSwing ? "8t" : "16n";
+
+  // One full measure of count-in before the groove itself starts, same
+  // idea as the Melody Mixer's count-in.
+  countInStepsRemaining = state.countIn ? stepsPerMeasure : 0;
+
+  // scheduleRepeat fires at a fixed interval with Tone's normal
+  // sample-accurate look-ahead - steady regardless of tempo. We track
+  // position ourselves rather than passing per-step data through
+  // Tone.Sequence, since Tone.Sequence treats an array VALUE at a given
+  // step as a nested subdivision rather than "multiple simultaneous
+  // instruments" - exactly the shape our chorded steps use, which is what
+  // was silently breaking playback.
+  repeatId = Tone.Transport.scheduleRepeat((time) => {
+    if (countInStepsRemaining > 0) {
+      const countInStepNumber = stepsPerMeasure - countInStepsRemaining;
+      if (state.metronome && countInStepNumber % stepsPerBeat === 0) {
+        triggerMetronomeClick(time, countInStepNumber === 0);
+      }
+      countInStepsRemaining--;
+      if (countInStepsRemaining === 0) {
+        Tone.Draw.schedule(() => {
+          document.getElementById("status").textContent = "Playing \u00b7 " + state.tempo + " BPM";
+        }, time);
+      }
+      return; // groove doesn't start until count-in finishes
+    }
+
+    if (state.metronome && stepIndex % stepsPerBeat === 0) {
+      triggerMetronomeClick(time, stepIndex % stepsPerMeasure === 0);
+    }
+
+    const entries = currentSteps[stepIndex];
+    if (entries) entries.forEach((entry) => triggerInstrument(entry.instrument, time, entry.dynamic, entry.articulation));
+
+    stepIndex++;
+    if (stepIndex >= currentSteps.length) {
+      if (state.loop) {
+        stepIndex = 0;
+      } else {
+        Tone.Transport.clear(repeatId);
+        repeatId = null;
+        Tone.Draw.schedule(() => stopPlayback(), time);
+      }
+    }
+  }, transportInterval);
+
+  Tone.Transport.start();
+  state.isPlaying = true;
+  document.getElementById("status").textContent = state.countIn
+    ? "Counting in\u2026"
+    : "Playing \u00b7 " + state.tempo + " BPM";
+}
+
+// Generate
+document.getElementById("btnGen").addEventListener("click", generateAndRender);
+
+// Play / Stop
+document.getElementById("btnPlay").addEventListener("click", startPlayback);
+document.getElementById("btnStop").addEventListener("click", stopPlayback);
+
+// Tempo
+document.getElementById("tempo").addEventListener("input", (e) => {
+  state.tempo = parseInt(e.target.value, 10);
+  document.getElementById("tempoVal").textContent = state.tempo;
+  if (state.isPlaying) Tone.Transport.bpm.value = state.tempo;
+});
+
+// Loop
+document.getElementById("loopToggle").addEventListener("change", (e) => {
+  state.loop = e.target.checked;
+  if (state.isPlaying) {
+    // Re-schedule so the loop setting takes effect immediately.
+    startPlayback();
+  }
+});
+
+// Metronome
+document.getElementById("metronomeToggle").addEventListener("change", (e) => {
+  state.metronome = e.target.checked;
+});
+
+// Count-in
+document.getElementById("countInToggle").addEventListener("change", (e) => {
+  state.countIn = e.target.checked;
+});
+
+// Zoom
+document.getElementById("btnZoomIn").addEventListener("click", () => {
+  state.zoom = Math.min(state.zoom + 10, 200);
+  applyZoom();
+});
+document.getElementById("btnZoomOut").addEventListener("click", () => {
+  state.zoom = Math.max(state.zoom - 10, 50);
+  applyZoom();
+});
+function applyZoom() {
+  document.getElementById("zoomLabel").textContent = state.zoom + "%";
+  document.getElementById("staff-scale-wrap").style.transform = "scale(" + (state.zoom / 100) + ")";
+}
+
+// Mixer faders - update displayed value always, and the live Tone.Volume
+// node if the audio engine has been initialized (i.e. Play has been hit at
+// least once, since Tone requires a user gesture to start the context).
+["Hihat", "Snare", "Kick", "Click", "Master"].forEach((name) => {
+  const slider = document.getElementById("fader" + name);
+  const val = document.getElementById("fader" + name + "Val");
+  slider.addEventListener("input", () => {
+    val.textContent = slider.value;
+    if (mixerNodes) {
+      const nodeKey = name.toLowerCase();
+      mixerNodes[nodeKey].volume.value = faderToDb(parseInt(slider.value, 10));
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// SHARE SETTINGS - encode/decode the full generator configuration into a
+// URL query param, since this is a static file with no backend to persist
+// anything server-side. Opening a shared link restores every control.
+// ══════════════════════════════════════════════════════════════════════
+function serializeSettings() {
+  return {
+    style: state.style,
+    grooveType: state.grooveType,
+    colorCodeVoices: state.colorCodeVoices,
+    hihatPatterns: state.hihatPatterns,
+    hihatRandomizeMode: state.hihatRandomizeMode,
+    measures: state.measures,
+    tempo: state.tempo,
+    loop: state.loop,
+    metronome: state.metronome,
+    countIn: state.countIn,
+    activeVoices: state.activeVoices,
+    halftime: state.halftime,
+    accentDownbeat: state.accentDownbeat,
+    accentUpbeat: state.accentUpbeat,
+    ghostNotes: state.ghostNotes,
+    ghostDensity: state.ghostDensity,
+    ghostBeats: state.ghostBeats,
+    hihatArticulation: state.hihatArticulation,
+    hihatOpenDensity: state.hihatOpenDensity,
+    hihatOpenEighths: state.hihatOpenEighths,
+    hihatOpenForceMode: state.hihatOpenForceMode,
+    kickSixteenthDensity: state.kickSixteenthDensity,
+    kickSixteenthEligible: state.kickSixteenthEligible,
+  };
+}
+
+function buildShareUrl() {
+  const payload = encodeURIComponent(JSON.stringify(serializeSettings()));
+  return window.location.origin + window.location.pathname + "?settings=" + payload;
+}
+
+// TinyURL integration - the Share Settings link encodes the entire
+// configuration in its query string, which gets long fast, so we shorten
+// it before copying. This is a static, backend-less file, so the token
+// necessarily lives in client-side JS (visible to anyone viewing source) -
+// same tradeoff already accepted for Melody Mixer's token.
+const TINYURL_API_TOKEN = "dZ7RXi8cxWR8DcyajhuRfVtQsIYXN1Xh6rYWuZbmZkvwGAGmLsBBk1BdGTMJ";
+
+async function shortenUrlViaTinyUrl(longUrl) {
+  const response = await fetch("https://api.tinyurl.com/create", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + TINYURL_API_TOKEN,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url: longUrl }),
+  });
+  if (!response.ok) {
+    // TinyURL's error responses carry useful detail (invalid token, bad
+    // domain, url too long, etc.) in the body - log it instead of just the
+    // status code, since that's what actually explains a failure.
+    let bodyText = "";
+    try { bodyText = await response.text(); } catch (e) { /* ignore */ }
+    throw new Error("TinyURL API returned " + response.status + ": " + bodyText);
+  }
+  const data = await response.json();
+  const shortUrl = data && data.data && data.data.tiny_url;
+  if (!shortUrl) throw new Error("Unexpected TinyURL response shape: " + JSON.stringify(data));
+  return shortUrl;
+}
+
+function restoreSettingsFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("settings");
+  if (!raw) return false;
+  try {
+    const settings = JSON.parse(decodeURIComponent(raw));
+    Object.assign(state, settings);
+    return true;
+  } catch (err) {
+    console.error("Failed to parse shared settings:", err);
+    return false;
+  }
+}
+
+// Push every value in `state` back onto the actual UI controls - needed
+// after restoring from a shared link, since state and the DOM would
+// otherwise be out of sync.
+function syncUIFromState() {
+  document.querySelectorAll("#styleGroup .tog").forEach((b) => b.classList.toggle("on", b.dataset.style === state.style));
+  updateSectionVisibilityForStyle();
+  document.querySelectorAll("#grooveTypeGroup .tog").forEach((b) => b.classList.toggle("on", b.dataset.groove === state.grooveType));
+  document.querySelectorAll("#hihatPatternGroup .tog").forEach((b) => b.classList.toggle("on", state.hihatPatterns.includes(b.dataset.hihatPattern)));
+  document.querySelectorAll("#hihatRandomizeModeGroup .tog").forEach((b) => b.classList.toggle("on", b.dataset.randomizeMode === state.hihatRandomizeMode));
+  syncHihatSelectAllButton();
+  updateKickSixteenthControlsEnabled();
+
+  document.getElementById("measureCount").value = String(state.measures);
+  document.getElementById("colorCodeToggle").checked = state.colorCodeVoices;
+  document.getElementById("tempo").value = state.tempo;
+  document.getElementById("tempoVal").textContent = state.tempo;
+  document.getElementById("loopToggle").checked = state.loop;
+  document.getElementById("metronomeToggle").checked = state.metronome;
+  document.getElementById("countInToggle").checked = state.countIn;
+
+  document.querySelectorAll("[data-voice]").forEach((cb) => { cb.checked = state.activeVoices[cb.dataset.voice]; });
+  syncPracticeFocusFromVoices();
+
+  document.getElementById("halftimeToggle").checked = state.halftime;
+  document.getElementById("accentDownbeatToggle").checked = state.accentDownbeat;
+  document.getElementById("accentUpbeatToggle").checked = state.accentUpbeat;
+
+  document.getElementById("ghostNotesToggle").checked = state.ghostNotes;
+  document.getElementById("ghostDensitySlider").value = state.ghostDensity;
+  document.getElementById("ghostDensityVal").textContent = state.ghostDensity + "%";
+  document.querySelectorAll("#ghostBeatsGroup .tog").forEach((b) => b.classList.toggle("on", state.ghostBeats.includes(parseInt(b.dataset.beat, 10))));
+
+  document.getElementById("hihatArticulationToggle").checked = state.hihatArticulation;
+  document.getElementById("hihatOpenDensitySlider").value = state.hihatOpenDensity;
+  document.getElementById("hihatOpenDensityVal").textContent = state.hihatOpenDensity + "%";
+  document.getElementById("hihatOpenForceToggle").checked = state.hihatOpenForceMode;
+  document.querySelectorAll("#hihatOpenEighthsGroup .tog").forEach((b) => b.classList.toggle("on", state.hihatOpenEighths.includes(parseInt(b.dataset.eighth, 10))));
+
+  document.getElementById("kickSixteenthDensitySlider").value = state.kickSixteenthDensity;
+  document.getElementById("kickSixteenthDensityVal").textContent = state.kickSixteenthDensity + "%";
+  document.querySelectorAll("#kickSixteenthGroup .tog").forEach((b) => b.classList.toggle("on", state.kickSixteenthEligible.includes(parseInt(b.dataset.sixteenth, 10))));
+  syncKickPositionSelectAllButton();
+}
+
+document.getElementById("btnShareSettings").addEventListener("click", async () => {
+  const statusEl = document.getElementById("status");
+  const shareBarEl = document.getElementById("shareBar");
+  const shareInputEl = document.getElementById("shareInput");
+  const longUrl = buildShareUrl();
+  statusEl.textContent = "Shortening link\u2026";
+
+  let urlToShare = longUrl;
+  let usedShortLink = false;
+  try {
+    urlToShare = await shortenUrlViaTinyUrl(longUrl);
+    usedShortLink = true;
+  } catch (err) {
+    console.error("TinyURL shortening failed, falling back to the full link. Reason: " + err.message, err);
+  }
+
+  shareInputEl.value = urlToShare;
+  shareBarEl.style.display = "flex";
+
+  navigator.clipboard.writeText(urlToShare).then(() => {
+    statusEl.textContent = usedShortLink ? "Short link copied to clipboard." : "Share link copied to clipboard.";
+  }).catch(() => {
+    statusEl.textContent = "Link ready below - copy it manually.";
+  });
+});
+
+document.getElementById("shareCopy").addEventListener("click", () => {
+  const shareInputEl = document.getElementById("shareInput");
+  const copyBtn = document.getElementById("shareCopy");
+  shareInputEl.select();
+  navigator.clipboard.writeText(shareInputEl.value).then(() => {
+    document.getElementById("status").textContent = "Link copied to clipboard.";
+    copyBtn.textContent = "Copied!";
+    copyBtn.classList.add("copied");
+    setTimeout(() => {
+      copyBtn.textContent = "Copy";
+      copyBtn.classList.remove("copied");
+    }, 1500);
+  }).catch(() => {
+    document.getElementById("status").textContent = "Couldn't copy automatically - the link is selected, copy it manually.";
+  });
+});
+
+document.getElementById("btnSaveGroove").addEventListener("click", () => {
+  window.print();
+});
+
+// Init
+window.addEventListener("load", () => {
+  if (typeof opensheetmusicdisplay === "undefined") {
+    document.getElementById("status").textContent = "Failed to load OSMD from CDN.";
+    return;
+  }
+  const restored = restoreSettingsFromUrl();
+  if (restored) syncUIFromState();
+  initOSMD();
+  generateAndRender();
+});
+</script>
+
+</body>
+</html>
