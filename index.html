@@ -3183,7 +3183,7 @@ function buildShareUrl() {
 // it before copying. Calling Bitly directly from the browser is CORS-blocked,
 // so (same pattern as Grid Mixer and Melody Mixer) a Cloudflare Worker proxies
 // the request: this page -> Worker -> Bitly API -> short link back.
-const SHORTENER_ENDPOINT = "https://groove-shortener.bcwaites.workers.dev/";
+const SHORTENER_ENDPOINT = "https://mw-links.bcwaites.workers.dev/";
 
 async function shortenUrlViaBitly(longUrl) {
   const response = await fetch(SHORTENER_ENDPOINT, {
