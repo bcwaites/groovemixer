@@ -593,7 +593,7 @@ html.mw-compact .share-bar { margin: 8px 10px; border: 1px solid #E0E0E0; border
           <span class="v-label">Color-code voices</span>
           <label class="switch"><input type="checkbox" id="colorCodeToggle"><span class="switch-track"></span></label>
         </div>
-        <div style="font-size:10px; color:#999; margin-top:4px; line-height:1.4;">Kick blue, snare red, everything else stays black.</div>
+        <div style="font-size:10px; color:#999; margin-top:4px; line-height:1.4;">Kick blue, snare red, everything else stays black. Recolors the current groove instantly &mdash; no need to Mix It Up.</div>
       </div>
     </div>
 
@@ -973,7 +973,7 @@ html.mw-compact .share-bar { margin: 8px 10px; border: 1px solid #E0E0E0; border
         <svg class="acc-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="acc-body" id="acc-voices">
-        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Turn voices on or off to refine coordination skills &mdash; ex. Kick and Snare only.</div>
+        <div style="font-size:11px; color:#999; margin-bottom:10px; line-height:1.4;">Turn voices on or off to refine coordination skills &mdash; ex. Kick and Snare only. Changes the current groove instantly, even while it plays.</div>
         <div class="voice-toggle-row">
           <span class="v-label">Hi-hat</span>
           <label class="switch"><input type="checkbox" checked data-voice="hihat"><span class="switch-track"></span></label>
@@ -1044,7 +1044,6 @@ html.mw-compact .share-bar { margin: 8px 10px; border: 1px solid #E0E0E0; border
         Count-in
       </label>
       <button class="btn-share tb-first-tool" id="btnShareSettings">&#128279; Share Settings</button>
-      <button class="btn-share" id="btnDownloadXml">&#128196; Download MusicXML</button>
       <button class="btn-share" id="btnSaveGroove">&#128190; Save Groove (PDF)</button>
     </div>
 
@@ -2297,20 +2296,15 @@ function generateAndRender() {
   stopPlayback();
 
   setDivisionsForStyle(state.style);
-  COLOR_CODE_VOICES = state.colorCodeVoices;
-
-  const measuresXml = [];
-  currentMeasuresEvents = [];
+  generatedPatterns = [];
+  generatedStyle = state.style;
 
   if (state.style === "swing") {
     const kickTripletConfig = { density: state.kickTripletDensity, eligible: state.kickTripletEligible };
     const snareCompingConfig = { density: state.snareCompingDensity, eligible: state.snareCompingEligible };
-    currentSwingMeasuresEvents = [];
     for (let m = 1; m <= state.measures; m++) {
-      const voicePatterns = generateSwingMeasure(state.activeVoices, kickTripletConfig, snareCompingConfig);
-      measuresXml.push(buildSwingMeasureXml(voicePatterns, { measureNumber: m, beats: 4, beatType: 4 }));
-      const { events, measureTicks } = computeSwingCompositeEvents(voicePatterns);
-      currentSwingMeasuresEvents.push({ events, measureTicks });
+      const voicePatterns = generateSwingMeasure(ALL_VOICES_ON, kickTripletConfig, snareCompingConfig);
+      generatedPatterns.push(voicePatterns);
     }
   } else if (state.style === "shuffle") {
     const shuffleKickConfig = { density: state.shuffleKickDensity, eligible: state.shuffleKickEligible };
@@ -2320,12 +2314,9 @@ function generateAndRender() {
     // Reuses the exact same triplet-grid event storage as Swing - both
     // styles produce the same 12-triplet-eighth-per-measure shape, so
     // playback doesn't need a separate code path for shuffle at all.
-    currentSwingMeasuresEvents = [];
     for (let m = 1; m <= state.measures; m++) {
-      const voicePatterns = generateShuffleMeasure(state.activeVoices, shuffleHihatArticulationConfig, shuffleKickConfig, shuffleSnareCompingConfig, shuffleGhostConfig, state.shuffleHalftime);
-      measuresXml.push(buildSwingMeasureXml(voicePatterns, { measureNumber: m, beats: 4, beatType: 4 }));
-      const { events, measureTicks } = computeSwingCompositeEvents(voicePatterns);
-      currentSwingMeasuresEvents.push({ events, measureTicks });
+      const voicePatterns = generateShuffleMeasure(ALL_VOICES_ON, shuffleHihatArticulationConfig, shuffleKickConfig, shuffleSnareCompingConfig, shuffleGhostConfig, state.shuffleHalftime);
+      generatedPatterns.push(voicePatterns);
     }
   } else {
     // Falls back to "eighth" if nothing is selected, so an empty selection
@@ -2343,20 +2334,66 @@ function generateAndRender() {
       const chosenHihatPattern = state.hihatRandomizeMode === "beat"
         ? buildBeatRandomizedHihatNotes(availableHihatPatterns)
         : availableHihatPatterns[Math.floor(Math.random() * availableHihatPatterns.length)];
-      const voicePatterns = generateStyleMeasure(state.style, state.grooveType, state.activeVoices, ghostConfig, state.halftime, accentConfig, chosenHihatPattern, hihatArticulationConfig, kickSixteenthConfig);
-      measuresXml.push(buildCompositeMeasureXml(voicePatterns, { measureNumber: m, beats: 4, beatType: 4 }));
-      currentMeasuresEvents.push(computeCompositeEvents(voicePatterns, 4, 4));
+      const voicePatterns = generateStyleMeasure(state.style, state.grooveType, ALL_VOICES_ON, ghostConfig, state.halftime, accentConfig, chosenHihatPattern, hihatArticulationConfig, kickSixteenthConfig);
+      generatedPatterns.push(voicePatterns);
     }
   }
 
-  currentXml = buildScoreDocument(measuresXml, { partName: "Drum Set (" + state.style + ")" });
+  rebuildFromPatterns();
   renderScore("Generated " + state.measures + " measures \u00b7 " + state.style);
+}
+
+// Every voice is always generated (Mix It Up), and the Voices switches and
+// Color-code toggle only decide what gets written out - so they can change
+// instantly, with no new groove. Turning a voice back on brings back the
+// exact notes it had. In Swing, "hihat" covers both ride and hi-hat foot.
+const ALL_VOICES_ON = { hihat: true, snare: true, kick: true };
+let generatedPatterns = [];
+let generatedStyle = null;
+const PATTERN_VOICE_OF = { hihat: "hihat", ride: "hihat", hihat_foot: "hihat", kick: "kick", snare: "snare" };
+function visiblePatterns(voicePatterns) {
+  const out = {};
+  for (const [inst, pat] of Object.entries(voicePatterns)) {
+    if (state.activeVoices[PATTERN_VOICE_OF[inst] || inst] !== false) out[inst] = pat;
+  }
+  return out;
+}
+function rebuildFromPatterns() {
+  COLOR_CODE_VOICES = state.colorCodeVoices;
+  const triplet = generatedStyle === "swing" || generatedStyle === "shuffle";
+  setDivisionsForStyle(generatedStyle);
+  const measuresXml = [];
+  currentMeasuresEvents = [];
+  currentSwingMeasuresEvents = [];
+  generatedPatterns.forEach((full, k) => {
+    const voicePatterns = visiblePatterns(full);
+    const opts = { measureNumber: k + 1, beats: 4, beatType: 4 };
+    if (triplet) {
+      measuresXml.push(buildSwingMeasureXml(voicePatterns, opts));
+      currentSwingMeasuresEvents.push(computeSwingCompositeEvents(voicePatterns));
+    } else {
+      measuresXml.push(buildCompositeMeasureXml(voicePatterns, opts));
+      currentMeasuresEvents.push(computeCompositeEvents(voicePatterns, 4, 4));
+    }
+  });
+  currentXml = buildScoreDocument(measuresXml, { partName: "Drum Set (" + generatedStyle + ")" });
+}
+// Redraw the current groove after a voice/color change. If it's playing,
+// the new parts drop in on the fly - no restart, no new count-in.
+function refreshCurrentGroove() {
+  if (!generatedPatterns.length) return;
+  rebuildFromPatterns();
+  if (state.isPlaying) {
+    const triplet = generatedStyle === "swing" || generatedStyle === "shuffle";
+    currentSteps = triplet ? buildSwingGlobalSteps() : buildGlobalSteps();
+  }
+  renderScore();
 }
 
 // On touch devices, write the line breaks into the score: 1 measure per
 // line on phones in portrait, 2 elsewhere (shared mobile layer decides).
 // Computers get the score untouched and keep OSMD's automatic line breaks.
-// (currentXml itself is never changed, so Download MusicXML is unaffected.)
+// (currentXml itself is never changed.)
 function mwWithLineBreaks(xml) {
   if (!(window.MW && MW.isTouch && MW.isTouch())) return xml;
   const per = MW.measuresPerLine();
@@ -2750,6 +2787,7 @@ document.getElementById("measureCount").addEventListener("change", (e) => {
 // Color-code voices toggle
 document.getElementById("colorCodeToggle").addEventListener("change", (e) => {
   state.colorCodeVoices = e.target.checked;
+  refreshCurrentGroove();
 });
 
 // Voice toggles
@@ -2757,6 +2795,7 @@ document.querySelectorAll('[data-voice]').forEach((checkbox) => {
   checkbox.addEventListener("change", (e) => {
     state.activeVoices[e.target.dataset.voice] = e.target.checked;
     syncPracticeFocusFromVoices();
+    refreshCurrentGroove();
   });
 });
 
@@ -2775,6 +2814,7 @@ document.querySelectorAll("#practiceFocusGroup .tog").forEach((btn) => {
         cb.checked = state.activeVoices[cb.dataset.voice];
       }
     });
+    refreshCurrentGroove();
   });
 });
 
@@ -3324,9 +3364,10 @@ async function startPlayback() {
   const stepsPerMeasure = isTripletStyle ? 12 : 16;
   const transportInterval = isTripletStyle ? "8t" : "16n";
 
-  // One full measure of count-in before the groove itself starts, same
-  // idea as the Melody Mixer's count-in.
-  countInStepsRemaining = state.countIn ? stepsPerMeasure : 0;
+  // Two full measures of count-in before the groove starts, like the other
+  // mixers. It always clicks, even with the metronome off.
+  const countInSteps = 2 * stepsPerMeasure;
+  countInStepsRemaining = state.countIn ? countInSteps : 0;
 
   // scheduleRepeat fires at a fixed interval with Tone's normal
   // sample-accurate look-ahead - steady regardless of tempo. We track
@@ -3337,9 +3378,9 @@ async function startPlayback() {
   // was silently breaking playback.
   repeatId = Tone.Transport.scheduleRepeat((time) => {
     if (countInStepsRemaining > 0) {
-      const countInStepNumber = stepsPerMeasure - countInStepsRemaining;
-      if (state.metronome && countInStepNumber % stepsPerBeat === 0) {
-        triggerMetronomeClick(time, countInStepNumber === 0);
+      const countInStepNumber = countInSteps - countInStepsRemaining;
+      if (countInStepNumber % stepsPerBeat === 0) {
+        triggerMetronomeClick(time, countInStepNumber % stepsPerMeasure === 0);
       }
       countInStepsRemaining--;
       if (countInStepsRemaining === 0) {
@@ -3678,32 +3719,6 @@ document.getElementById("shareCopy").addEventListener("click", () => {
   });
 });
 
-document.getElementById("btnDownloadXml").addEventListener("click", () => {
-  const statusEl = document.getElementById("status");
-  if (!currentXml) {
-    statusEl.textContent = "Nothing generated yet - hit MIX IT UP! first.";
-    return;
-  }
-
-  // Filename includes style + a timestamp so repeated downloads in one
-  // session don't silently overwrite each other without the user noticing.
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const stamp = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + "-" + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
-  const filename = "groove-mixer-" + state.style + "-" + stamp + ".musicxml";
-
-  const blob = new Blob([currentXml], { type: "application/vnd.recordare.musicxml+xml" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  statusEl.textContent = "Downloaded " + filename;
-});
 
 document.getElementById("btnSaveGroove").addEventListener("click", () => {
   // On phones/tablets, print at the desktop layout (2 measures per line).
